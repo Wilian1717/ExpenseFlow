@@ -198,7 +198,7 @@ export default function RegisterPage() {
             {/* Logo */}
             <div className="form-logo">
               <img
-                src="/logo2.png"
+                src="/logo.png"
                 alt="ExpenseFlow"
                 className="form-logo-img"
                 onError={e => {
@@ -457,7 +457,7 @@ export default function RegisterPage() {
           {/* Logo */}
           <div className="left-logo">
             <img
-              src="/logo.png"
+              src="/logo2.png"
               alt="ExpenseFlow"
               className="left-logo-img"
               onError={e => {
