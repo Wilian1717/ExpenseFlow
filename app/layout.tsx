@@ -20,7 +20,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full antialiased">
       <head>
-        <link rel="apple-touch-icon" href="/icon.png" />
+        <link rel="apple-touch-icon" href="/IOSicon.png" />
         <link rel="icon" href="/icon.png" />
       </head>
       <body className={`${poppins.className} min-h-full flex flex-col`}>
