@@ -42,6 +42,18 @@ interface RecurringExpense {
   category: Category; frequency: Frequency; next_due: string; note?: string; created_at: string
   last_paid_date?: string
 }
+interface ExpensePool {
+  id: string; user_id: string; title: string; budget_amount: number
+  category: Category; note?: string; created_at: string; is_archived: boolean
+}
+interface ExpensePoolEntry {
+  id: string; pool_id: string; user_id: string; amount: number
+  month: string; note?: string; expense_id?: string; created_at: string
+}
+interface ExpensePoolWithStats {
+  pool: ExpensePool; entries: ExpensePoolEntry[]
+  spent: number; remaining: number; pct: number
+}
 
 const CATEGORY_CONFIG: Record<Category, { label: string; icon: React.ReactNode; bg: string; text: string }> = {
   food:          { label: 'Food & dining',  icon: <UtensilsCrossed size={14} />, bg: 'bg-green-50',   text: 'text-green-800'  },
@@ -1039,6 +1051,320 @@ function SmartInsightsContent({ thisMonthTotal, lastMonthTotal, avgPerDay, categ
   )
 }
 
+// ─── Add Pool Modal ───────────────────────────────────────────────────────────
+function AddPoolModal({ onClose, onSave }: {
+  onClose: () => void
+  onSave: (data: { title: string; budget_amount: number; category: Category; note: string }) => Promise<void>
+}) {
+  const [title, setTitle]         = useState('')
+  const [amount, setAmount]       = useState('')
+  const [category, setCategory]   = useState<Category>('transport')
+  const [note, setNote]           = useState('')
+  const [saving, setSaving]       = useState(false)
+
+  const handleSave = async () => {
+    if (!title.trim() || !amount || parseFloat(amount) <= 0) return
+    setSaving(true); await onSave({ title: title.trim(), budget_amount: parseFloat(amount), category, note: note.trim() }); setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0">
+      <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-xl max-h-[90vh] overflow-y-auto animate-slide-up">
+        <div className="flex justify-between items-center mb-5">
+          <div><h2 className="text-base font-medium text-black">New expense pool</h2><p className="text-xs text-gray-400 mt-0.5">Set a monthly budget envelope</p></div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all"><X size={16} /></button>
+        </div>
+        <div className="mb-4">
+          <label className="text-xs text-gray-400 mb-2 block">Category</label>
+          <div className="grid grid-cols-4 gap-1.5">
+            {(Object.keys(CATEGORY_CONFIG) as Category[]).filter(c => c !== 'savings').map(c => {
+              const cfg = CATEGORY_CONFIG[c]; const active = category === c
+              return (
+                <button key={c} type="button" onClick={() => setCategory(c)}
+                  className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-xs font-medium transition-all ${active ? `${cfg.bg} ${cfg.text} ring-1 ring-current` : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>
+                  <span className={active ? cfg.text : 'text-gray-400'}>{cfg.icon}</span>
+                  <span className="text-[10px] leading-none">{cfg.label.split(' ')[0]}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Monthly budget (Rp)</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
+              <input type="text" inputMode="numeric" value={amount} onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" autoFocus
+                className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
+            </div>
+            {amount && !isNaN(parseFloat(amount)) && parseFloat(amount) > 0 && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(parseFloat(amount))}</p>}
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Pool name</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Work Transport, Groceries..."
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Note <span className="text-gray-300">(optional)</span></label>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="Add a note..."
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+          </div>
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} className="flex-1 border border-gray-200 rounded-lg py-2.5 text-sm text-gray-600 hover:bg-gray-50 transition">Cancel</button>
+          <button onClick={handleSave} disabled={saving || !title.trim() || !amount || parseFloat(amount) <= 0}
+            className="flex-1 bg-black text-white rounded-lg py-2.5 text-sm font-medium hover:bg-gray-800 active:scale-[.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Plus size={14} /> Create pool</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Log Pool Entry Modal ─────────────────────────────────────────────────────
+function LogPoolEntryModal({ pool, remaining, onClose, onSave }: {
+  pool: ExpensePool; remaining: number; onClose: () => void
+  onSave: (amount: number, note: string) => Promise<void>
+}) {
+  const [amount, setAmount] = useState('')
+  const [note, setNote]     = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    if (!amount || parseFloat(amount) <= 0) return
+    setSaving(true); await onSave(parseFloat(amount), note.trim()); setSaving(false)
+  }
+
+  const cfg = CATEGORY_CONFIG[pool.category]
+  const afterRemaining = remaining - (parseFloat(amount) || 0)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0">
+      <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-xl animate-slide-up">
+        <div className="flex justify-between items-center mb-1">
+          <div>
+            <h2 className="text-base font-medium text-black">Log usage</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{pool.title}</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all"><X size={16} /></button>
+        </div>
+        <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg ${cfg.bg} ${cfg.text} text-xs font-medium mb-4`}>
+          {cfg.icon}
+          {remaining >= 0 ? `${fmtShort(remaining)} remaining` : `${fmtShort(Math.abs(remaining))} over budget`}
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Amount (Rp)</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
+              <input type="text" inputMode="numeric" value={amount} onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" autoFocus
+                className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
+            </div>
+            {amount && !isNaN(parseFloat(amount)) && parseFloat(amount) > 0 && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(parseFloat(amount))}</p>}
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Note <span className="text-gray-300">(optional)</span></label>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Gojek to office..."
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+          </div>
+          {amount && parseFloat(amount) > 0 && (
+            <div className="bg-gray-50 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500">After logging: <span className={`font-medium ${afterRemaining < 0 ? 'text-red-600' : 'text-black'}`}>{fmtShort(Math.abs(afterRemaining))} {afterRemaining < 0 ? 'over budget' : 'remaining'}</span></p>
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} className="flex-1 border border-gray-200 rounded-lg py-2.5 text-sm text-gray-600 hover:bg-gray-50 transition">Cancel</button>
+          <button onClick={handleSave} disabled={saving || !amount || parseFloat(amount) <= 0}
+            className="flex-1 bg-black text-white rounded-lg py-2.5 text-sm font-medium hover:bg-gray-800 active:scale-[.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Check size={14} /> Log usage</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Pool Detail Modal ────────────────────────────────────────────────────────
+function PoolDetailModal({ stats, selectedMonth, onClose, onLogEntry, onDeleteEntry, onEditPool, onArchivePool, onOpenLog }: {
+  stats: ExpensePoolWithStats; selectedMonth: string; onClose: () => void
+  onLogEntry: () => void
+  onDeleteEntry: (entry: ExpensePoolEntry) => Promise<void>
+  onEditPool: (updated: Partial<Pick<ExpensePool, 'title' | 'budget_amount' | 'category' | 'note'>>) => Promise<void>
+  onArchivePool: () => Promise<void>
+  onOpenLog: () => void
+}) {
+  const { pool, entries, spent, remaining, pct } = stats
+  const [tab, setTab]             = useState<'overview' | 'history' | 'edit'>('overview')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editTitle, setEditTitle]   = useState(pool.title)
+  const [editAmount, setEditAmount] = useState(String(pool.budget_amount))
+  const [editCategory, setEditCategory] = useState<Category>(pool.category)
+  const [editNote, setEditNote]     = useState(pool.note ?? '')
+  const [editSaving, setEditSaving] = useState(false)
+  const [archiving, setArchiving]   = useState(false)
+
+  const over = spent > pool.budget_amount
+  const warn = !over && pct >= 80
+  const cfg  = CATEGORY_CONFIG[pool.category]
+
+  const handleDeleteEntry = async (entry: ExpensePoolEntry) => {
+    setDeletingId(entry.id); await onDeleteEntry(entry); setDeletingId(null)
+  }
+  const handleEditPool = async () => {
+    if (!editTitle.trim() || !editAmount || parseFloat(editAmount) <= 0) return
+    setEditSaving(true)
+    await onEditPool({ title: editTitle.trim(), budget_amount: parseFloat(editAmount), category: editCategory, note: editNote.trim() })
+    setEditSaving(false)
+  }
+  const handleArchive = async () => { setArchiving(true); await onArchivePool(); setArchiving(false) }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0">
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl max-h-[88vh] flex flex-col animate-slide-up">
+        <div className="flex items-start justify-between p-5 pb-3 border-b border-gray-100">
+          <div className="flex-1 min-w-0 mr-3">
+            <p className="text-base font-medium text-black truncate">{pool.title}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{fmtShort(spent)} of {fmtShort(pool.budget_amount)} used · {getMonthLabelFull(selectedMonth)}</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all shrink-0"><X size={16} /></button>
+        </div>
+        <div className="px-5 pt-3 pb-0">
+          <div className="bg-gray-100 rounded-full h-2.5 overflow-hidden mb-1">
+            <div className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-red-500' : warn ? 'bg-amber-500' : 'bg-black'}`} style={{ width: `${pct}%` }} />
+          </div>
+          <div className="flex justify-between">
+            <span className={`text-xs ${over ? 'text-red-500' : warn ? 'text-amber-500' : 'text-gray-400'}`}>{pct.toFixed(0)}% used</span>
+            {over ? <span className="text-xs text-red-500 font-medium">Over by {fmtShort(spent - pool.budget_amount)}</span>
+                  : <span className="text-xs text-gray-400">{fmtShort(remaining)} remaining</span>}
+          </div>
+        </div>
+        <div className="flex gap-1 mx-5 mt-3 bg-gray-100 p-1 rounded-lg">
+          {(['overview', 'history', 'edit'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`flex-1 py-1 rounded-md text-xs font-medium transition-all ${tab === t ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-black'}`}>
+              {t === 'overview' ? 'Overview' : t === 'history' ? `History (${entries.length})` : 'Edit'}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 pb-5 pt-3">
+          {tab === 'overview' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Budget</p>
+                  <p className="text-sm font-semibold text-black">{fmtShort(pool.budget_amount)}</p>
+                  <p className="text-[10px] text-gray-400">per month</p>
+                </div>
+                <div className={`rounded-xl px-3 py-2.5 ${over ? 'bg-red-50' : 'bg-gray-50'}`}>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Remaining</p>
+                  <p className={`text-sm font-semibold ${over ? 'text-red-600' : 'text-black'}`}>{fmtShort(Math.abs(remaining))}</p>
+                  <p className={`text-[10px] ${over ? 'text-red-400' : 'text-gray-400'}`}>{over ? 'over budget' : 'left'}</p>
+                </div>
+              </div>
+              <div className="bg-gray-50 rounded-xl px-3 py-2.5 flex justify-between items-center">
+                <div>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Total used</p>
+                  <p className="text-sm font-semibold text-black">{fmtShort(spent)}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Entries</p>
+                  <p className="text-sm font-semibold text-black">{entries.length}</p>
+                </div>
+              </div>
+              <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg ${cfg.bg} ${cfg.text} text-xs font-medium`}>
+                {cfg.icon} {cfg.label}
+              </div>
+              {pool.note && <p className="text-xs text-gray-400 italic">{pool.note}</p>}
+              <button onClick={onOpenLog}
+                className="w-full bg-black text-white rounded-lg py-2.5 text-sm font-medium hover:bg-gray-800 active:scale-[.98] transition-all flex items-center justify-center gap-2">
+                <Plus size={14} /> Log daily usage
+              </button>
+            </div>
+          )}
+          {tab === 'history' && (
+            entries.length === 0 ? (
+              <div className="text-center py-8"><History size={24} className="mx-auto mb-2 text-gray-200" /><p className="text-xs text-gray-300">No entries this month yet</p><button onClick={onOpenLog} className="mt-3 inline-flex items-center gap-1 text-xs text-black font-medium hover:underline"><Plus size={11} /> Log first usage</button></div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <div className="bg-gray-50 rounded-xl px-3 py-2.5 mb-1 flex justify-between items-center">
+                  <span className="text-xs text-gray-500">{entries.length} entr{entries.length !== 1 ? 'ies' : 'y'} this month</span>
+                  <span className="text-xs font-medium text-black">{fmtShort(spent)} total</span>
+                </div>
+                {entries.map(entry => (
+                  <div key={entry.id} className="flex items-center gap-3 border border-gray-100 rounded-xl px-3 py-2.5 group hover:bg-gray-50 transition-all">
+                    <div className={`w-7 h-7 ${cfg.bg} rounded-lg flex items-center justify-center shrink-0`}>
+                      <span className={cfg.text}>{cfg.icon}</span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-sm font-medium ${cfg.text}`}>-{fmtShort(entry.amount)}</p>
+                      {entry.note && <p className="text-xs text-gray-400 truncate">{entry.note}</p>}
+                      <p className="text-xs text-gray-300">{new Date(entry.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                    </div>
+                    <button onClick={() => handleDeleteEntry(entry)} disabled={deletingId === entry.id}
+                      className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-all disabled:opacity-50 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0">
+                      {deletingId === entry.id ? <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={12} />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+          {tab === 'edit' && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-2 block">Category</label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {(Object.keys(CATEGORY_CONFIG) as Category[]).filter(c => c !== 'savings').map(c => {
+                    const cat = CATEGORY_CONFIG[c]; const active = editCategory === c
+                    return (
+                      <button key={c} type="button" onClick={() => setEditCategory(c)}
+                        className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-xs font-medium transition-all ${active ? `${cat.bg} ${cat.text} ring-1 ring-current` : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>
+                        <span className={active ? cat.text : 'text-gray-400'}>{cat.icon}</span>
+                        <span className="text-[10px] leading-none">{cat.label.split(' ')[0]}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Pool name</label>
+                <input value={editTitle} onChange={e => setEditTitle(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Monthly budget (Rp)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
+                  <input type="text" inputMode="numeric" value={editAmount} onChange={e => setEditAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                    className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
+                </div>
+                {editAmount && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(parseFloat(editAmount) || 0)}</p>}
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Note <span className="text-gray-300">(optional)</span></label>
+                <input value={editNote} onChange={e => setEditNote(e.target.value)} placeholder="Add a note..."
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+              </div>
+              <button onClick={handleEditPool} disabled={editSaving}
+                className="w-full bg-black text-white rounded-lg py-2.5 text-sm font-medium hover:bg-gray-800 active:scale-[.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                {editSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Check size={14} /> Save changes</>}
+              </button>
+              <div className="pt-2 border-t border-gray-100">
+                <button onClick={handleArchive} disabled={archiving}
+                  className="w-full border border-red-200 text-red-500 hover:bg-red-50 rounded-lg py-2.5 text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                  {archiving ? <div className="w-4 h-4 border-2 border-red-300 border-t-red-500 rounded-full animate-spin" /> : <><Trash2 size={14} /> Archive this pool</>}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [expenses, setExpenses]               = useState<Expense[]>([])
@@ -1075,6 +1401,11 @@ export default function Dashboard() {
   const [deletingBillId, setDeletingBillId]   = useState<string | null>(null)
   const [payingBillId, setPayingBillId]       = useState<string | null>(null)
   const [localPaidBills, setLocalPaidBills]   = useState<Record<string, string>>({})
+  const [expensePools, setExpensePools]       = useState<ExpensePool[]>([])
+  const [poolEntries, setPoolEntries]         = useState<ExpensePoolEntry[]>([])
+  const [showAddPool, setShowAddPool]         = useState(false)
+  const [loggingPool, setLoggingPool]         = useState<ExpensePool | null>(null)
+  const [openPool, setOpenPool]               = useState<ExpensePool | null>(null)
   const [menuOpen, setMenuOpen]               = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const router  = useRouter()
@@ -1095,7 +1426,7 @@ export default function Dashboard() {
     setUserEmail(user.email ?? '')
     const rawName = user.user_metadata?.full_name ?? user.email?.split('@')[0] ?? ''
     setFullName(rawName.split(' ')[0])
-    await Promise.all([fetchExpenses(user.id), fetchIncome(user.id), fetchBudgets(user.id), fetchGoals(user.id), fetchRecurring(user.id)])
+    await Promise.all([fetchExpenses(user.id), fetchIncome(user.id), fetchBudgets(user.id), fetchGoals(user.id), fetchRecurring(user.id), fetchPools(user.id)])
     setLoading(false)
   }
 
@@ -1125,6 +1456,14 @@ export default function Dashboard() {
       }
     })
     setLocalPaidBills(rehydrated)
+  }
+  const fetchPools = async (uid: string) => {
+    const { data: pools } = await supabase.from('expense_pools').select('*').eq('user_id', uid).eq('is_archived', false).order('created_at', { ascending: true })
+    setExpensePools(pools || [])
+    if (pools && pools.length > 0) {
+      const { data: entries } = await supabase.from('expense_pool_entries').select('*').eq('user_id', uid).order('created_at', { ascending: false })
+      setPoolEntries(entries || [])
+    }
   }
 
   const handleLogout = async () => { await supabase.auth.signOut(); router.push('/login') }
@@ -1275,8 +1614,57 @@ export default function Dashboard() {
     setLocalPaidBills(prev => { const n = { ...prev }; delete n[r.id]; return n })
   }
 
+  const handleAddPool = async (data: { title: string; budget_amount: number; category: Category; note: string }) => {
+    const { data: ud } = await supabase.auth.getUser(); const user = ud.user; if (!user) return
+    const { data: inserted, error } = await supabase.from('expense_pools').insert({ ...data, user_id: user.id, is_archived: false }).select().single()
+    if (!error && inserted) setExpensePools(prev => [...prev, inserted])
+    setShowAddPool(false)
+  }
+  const handleLogPoolEntry = async (pool: ExpensePool, amount: number, note: string) => {
+    const { data: ud } = await supabase.auth.getUser(); const user = ud.user; if (!user) return
+    const { data: newExp, error: e1 } = await supabase.from('expenses').insert({
+      title: pool.title, amount, category: pool.category,
+      note: note || `Pool: ${pool.title}`, user_id: user.id, created_at: localISOString()
+    }).select().single()
+    if (e1) return
+    const { data: newEntry, error: e2 } = await supabase.from('expense_pool_entries').insert({
+      pool_id: pool.id, user_id: user.id, amount, month: selectedMonth,
+      note: note.trim(), expense_id: newExp.id, created_at: localISOString()
+    }).select().single()
+    if (!e2 && newEntry) setPoolEntries(prev => [newEntry, ...prev])
+    if (newExp) setExpenses(prev => [newExp, ...prev])
+    setLoggingPool(null)
+  }
+  const handleDeletePoolEntry = async (entry: ExpensePoolEntry) => {
+    await supabase.from('expense_pool_entries').delete().eq('id', entry.id)
+    if (entry.expense_id) {
+      await supabase.from('expenses').delete().eq('id', entry.expense_id)
+      setExpenses(prev => prev.filter(e => e.id !== entry.expense_id))
+    }
+    setPoolEntries(prev => prev.filter(e => e.id !== entry.id))
+  }
+  const handleEditPool = async (poolId: string, updated: Partial<Pick<ExpensePool, 'title' | 'budget_amount' | 'category' | 'note'>>) => {
+    const { error } = await supabase.from('expense_pools').update(updated).eq('id', poolId)
+    if (!error) {
+      setExpensePools(prev => prev.map(p => p.id === poolId ? { ...p, ...updated } : p))
+      setOpenPool(prev => prev?.id === poolId ? { ...prev, ...updated } : prev)
+    }
+  }
+  const handleArchivePool = async (poolId: string) => {
+    await supabase.from('expense_pools').update({ is_archived: true }).eq('id', poolId)
+    setExpensePools(prev => prev.filter(p => p.id !== poolId))
+    setOpenPool(prev => prev?.id === poolId ? null : prev)
+  }
+
   // ── Derived ──────────────────────────────────────────────────────────────────
   const thisMonthExpenses = useMemo(() => expenses.filter(e => inMonth(e.created_at, selectedMonth)), [expenses, selectedMonth])
+  const poolsThisMonth = useMemo<ExpensePoolWithStats[]>(() =>
+    expensePools.map(pool => {
+      const entries = poolEntries.filter(e => e.pool_id === pool.id && e.month === selectedMonth)
+      const spent   = entries.reduce((s, e) => s + e.amount, 0)
+      const remaining = pool.budget_amount - spent
+      return { pool, entries, spent, remaining, pct: Math.min(pool.budget_amount > 0 ? (spent / pool.budget_amount) * 100 : 0, 100) }
+    }), [expensePools, poolEntries, selectedMonth])
   const lastMonthExpenses = useMemo(() => {
     const now = new Date(selectedMonth + '-02'); now.setMonth(now.getMonth() - 1)
     const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -1703,6 +2091,78 @@ export default function Dashboard() {
             </div>
           )}
 
+          {/* ── Expense Pools ── */}
+          <CollapsibleSection
+            title="Expense pools" icon={<Wallet size={13} />}
+            defaultOpen={expensePools.length > 0}
+            badge={expensePools.length} badgeColor="bg-blue-500"
+            headerRight={
+              <button onClick={e => { e.stopPropagation(); setShowAddPool(true) }}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-black transition-colors">
+                <Plus size={12} /> Add
+              </button>
+            }
+          >
+            {expensePools.length === 0 ? (
+              <div className="text-center py-6">
+                <Wallet size={28} className="mx-auto mb-2 text-gray-200" />
+                <p className="text-xs text-gray-400 font-medium mb-0.5">No expense pools yet</p>
+                <p className="text-xs text-gray-300 mb-3">Set a monthly budget and log daily usage</p>
+                <button onClick={() => setShowAddPool(true)}
+                  className="inline-flex items-center gap-1.5 bg-black text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-all">
+                  <Plus size={12} /> Create first pool
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {poolsThisMonth.map(({ pool, spent, remaining, pct }) => {
+                  const over = spent > pool.budget_amount
+                  const warn = !over && pct >= 80
+                  const cfg  = CATEGORY_CONFIG[pool.category]
+                  return (
+                    <div key={pool.id} onClick={() => setOpenPool(pool)}
+                      className="border border-gray-100 rounded-xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className={`w-6 h-6 ${cfg.bg} rounded-lg flex items-center justify-center shrink-0`}>
+                            <span className={cfg.text}>{cfg.icon}</span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{pool.title}</p>
+                            <p className="text-xs text-gray-400">{fmtShort(pool.budget_amount)} / month</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            onClick={e => { e.stopPropagation(); setLoggingPool(pool) }}
+                            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 text-xs text-gray-600 hover:border-black hover:text-black transition-all">
+                            <Plus size={11} /> Log
+                          </button>
+                          <RowMenu items={[
+                            { label: 'Details', icon: <History size={13} />, onClick: () => setOpenPool(pool) },
+                            { label: 'Archive', icon: <Trash2 size={13} />, onClick: () => handleArchivePool(pool.id), danger: true },
+                          ]} />
+                        </div>
+                      </div>
+                      <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden mb-1.5">
+                        <div className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-red-500' : warn ? 'bg-amber-500' : 'bg-black'}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-500">{fmtShort(spent)} used</span>
+                        {over
+                          ? <span className="text-red-500 font-medium">Over by {fmtShort(spent - pool.budget_amount)}</span>
+                          : warn
+                          ? <span className="text-amber-500">{fmtShort(remaining)} left · {pct.toFixed(0)}% used</span>
+                          : <span className="text-gray-400">{fmtShort(remaining)} remaining</span>
+                        }
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </CollapsibleSection>
+
           {/* ── Savings Goals ── */}
           <CollapsibleSection
             title="Savings goals" icon={<Flag size={13} />} defaultOpen={false}
@@ -2053,6 +2513,9 @@ export default function Dashboard() {
         />}
       {showAddBill    && <AddBillModal    onClose={() => setShowAddBill(false)}    onSave={handleAddBill} />}
       {editingBill    && <EditBillModal   item={editingBill} onClose={() => setEditingBill(null)} onSave={handleSaveEditBill} />}
+      {showAddPool    && <AddPoolModal    onClose={() => setShowAddPool(false)}   onSave={handleAddPool} />}
+      {loggingPool    && (() => { const stats = poolsThisMonth.find(s => s.pool.id === loggingPool.id); return stats ? <LogPoolEntryModal pool={loggingPool} remaining={stats.remaining} onClose={() => setLoggingPool(null)} onSave={(amt, note) => handleLogPoolEntry(loggingPool, amt, note)} /> : null })()}
+      {openPool       && (() => { const stats = poolsThisMonth.find(s => s.pool.id === openPool.id); return stats ? <PoolDetailModal stats={stats} selectedMonth={selectedMonth} onClose={() => setOpenPool(null)} onLogEntry={() => {}} onDeleteEntry={handleDeletePoolEntry} onEditPool={(u) => handleEditPool(openPool.id, u)} onArchivePool={() => handleArchivePool(openPool.id)} onOpenLog={() => { setLoggingPool(openPool); setOpenPool(null) }} /> : null })()}
     </>
   )
 }
