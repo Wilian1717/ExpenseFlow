@@ -11,7 +11,7 @@ import {
   DollarSign, Briefcase, BarChart2, PiggyBank, ArrowUpCircle, ArrowDownCircle,
   Lightbulb, AlertTriangle, Flag, Flame, Search, ChevronDown,
   User, Home, Zap, Menu, ChevronLeft, ChevronRight, History, CreditCard,
-  MoreVertical, Undo2, Download, SlidersHorizontal, Tv, Eye, EyeOff
+  MoreVertical, Undo2, Download, SlidersHorizontal, Tv, Eye, EyeOff, Calculator
 } from 'lucide-react'
 
 type Category = 'food' | 'transport' | 'shopping' | 'health' | 'personal' | 'housing' | 'utilities' | 'entertainment' | 'savings' | 'other'
@@ -1365,6 +1365,559 @@ function PoolDetailModal({ stats, selectedMonth, onClose, onLogEntry, onDeleteEn
   )
 }
 
+// ─── Budget Simulator Modal ───────────────────────────────────────────────────
+function BudgetSimulatorModal({
+  thisMonthIncomeTot, thisMonthTotal, avgPerDay, categoryTotals,
+  last6Months, expenses, recurring, budgets, savingsGoals, selectedMonth, onClose
+}: {
+  thisMonthIncomeTot: number; thisMonthTotal: number; avgPerDay: number
+  categoryTotals: Partial<Record<Category, number>>
+  last6Months: { key: string; label: string; total: number }[]
+  expenses: Expense[]; recurring: RecurringExpense[]
+  budgets: Budget[]; savingsGoals: SavingsGoal[]
+  selectedMonth: string; onClose: () => void
+}) {
+  const [tab, setTab] = useState<'plan' | 'project' | 'scenarios' | 'goals'>('plan')
+  const [simIncome, setSimIncome] = useState(thisMonthIncomeTot || 0)
+  const [simCategoryBudgets, setSimCategoryBudgets] = useState<Partial<Record<Category, number>>>(() => {
+    const init: Partial<Record<Category, number>> = {}
+    budgets.forEach(b => { init[b.category] = b.limit_amount })
+    return init
+  })
+  const [activeScenario, setActiveScenario] = useState<'custom' | 'frugal' | 'normal' | 'ambitious'>('custom')
+  const [goalAllocations, setGoalAllocations] = useState<Record<string, number>>(() => {
+    const init: Record<string, number> = {}
+    savingsGoals.forEach(g => { init[g.id] = 0 })
+    return init
+  })
+  const [saving, setSaving] = useState(false)
+  const [savedAt, setSavedAt] = useState<Date | null>(null)
+  const [loadingPlan, setLoadingPlan] = useState(true)
+
+  useEffect(() => {
+    const load = async () => {
+      const { data: ud } = await supabase.auth.getUser()
+      const user = ud.user; if (!user) { setLoadingPlan(false); return }
+      const { data } = await supabase.from('budget_simulations').select('*').eq('user_id', user.id).maybeSingle()
+      if (data) {
+        setSimIncome(data.sim_income || thisMonthIncomeTot || 0)
+        setSimCategoryBudgets(data.category_budgets || {})
+        setGoalAllocations(data.goal_allocations || {})
+        setSavedAt(new Date(data.updated_at))
+      }
+      setLoadingPlan(false)
+    }
+    load()
+  }, [])
+
+  const handleSavePlan = async () => {
+    setSaving(true)
+    const { data: ud } = await supabase.auth.getUser()
+    const user = ud.user; if (!user) { setSaving(false); return }
+    await supabase.from('budget_simulations').upsert({
+      user_id: user.id, sim_income: simIncome,
+      category_budgets: simCategoryBudgets,
+      goal_allocations: goalAllocations,
+      updated_at: new Date().toISOString()
+    }, { onConflict: 'user_id' })
+    setSavedAt(new Date()); setSaving(false)
+  }
+
+  // ── Key derived values ──────────────────────────────────────────────────────
+  const simFixedTotal = useMemo(() => recurring.reduce((s, r) => {
+    const monthly = r.frequency === 'daily' ? r.amount * 30 : r.frequency === 'weekly' ? r.amount * 4.33 : r.amount
+    return s + monthly
+  }, 0), [recurring])
+
+  const simVariableTotal = useMemo(() =>
+    Object.values(simCategoryBudgets).reduce((s, v) => s + (v || 0), 0), [simCategoryBudgets])
+
+  const simSurplus     = simIncome - simFixedTotal - simVariableTotal
+  const simSavingsRate = simIncome > 0 ? (simSurplus / simIncome) * 100 : 0
+
+  const threeMonthCatAvg = useMemo(() => {
+    const recentThree = last6Months.slice(2, 5)
+    const totals: Partial<Record<Category, number>> = {}
+    recentThree.forEach(m => {
+      expenses.filter(e => inMonth(e.created_at, m.key)).forEach(e => {
+        totals[e.category] = (totals[e.category] || 0) + e.amount
+      })
+    })
+    const avg: Partial<Record<Category, number>> = {}
+    ;(Object.keys(totals) as Category[]).forEach(cat => { avg[cat] = Math.round((totals[cat] || 0) / 3) })
+    return avg
+  }, [last6Months, expenses])
+
+  const lastMonthCatActuals = useMemo(() => {
+    const idx = last6Months.findIndex(m => m.key === selectedMonth)
+    if (idx <= 0) return {}
+    const lastKey = last6Months[idx - 1].key
+    const map: Partial<Record<Category, number>> = {}
+    expenses.filter(e => inMonth(e.created_at, lastKey)).forEach(e => { map[e.category] = (map[e.category] || 0) + e.amount })
+    return map
+  }, [last6Months, selectedMonth, expenses])
+
+  const frugalBudgets = useMemo(() =>
+    Object.fromEntries(Object.entries(simCategoryBudgets).map(([c, v]) => [c, Math.round((v || 0) * 0.7)])) as Partial<Record<Category, number>>,
+    [simCategoryBudgets])
+
+  const normalBudgets = useMemo(() => lastMonthCatActuals, [lastMonthCatActuals])
+
+  const ambitiousBudgets = useMemo(() => {
+    const totalGoalAlloc = Object.values(goalAllocations).reduce((s, v) => s + v, 0)
+    const available = Math.max(simIncome - simFixedTotal - totalGoalAlloc, 0)
+    const totalAvg   = Object.values(threeMonthCatAvg).reduce((s, v) => s + (v || 0), 0)
+    if (totalAvg === 0) return simCategoryBudgets
+    return Object.fromEntries(
+      (Object.keys(threeMonthCatAvg) as Category[]).map(cat => [cat, Math.round(((threeMonthCatAvg[cat] || 0) / totalAvg) * available)])
+    ) as Partial<Record<Category, number>>
+  }, [simIncome, simFixedTotal, goalAllocations, threeMonthCatAvg, simCategoryBudgets])
+
+  // Projection
+  const [yr, mo] = selectedMonth.split('-').map(Number)
+  const nowDate  = new Date()
+  const isCurrentMonth = yr === nowDate.getFullYear() && mo === nowDate.getMonth() + 1
+  const daysInMonth    = new Date(yr, mo, 0).getDate()
+  const daysElapsed    = isCurrentMonth ? nowDate.getDate() : daysInMonth
+  const daysRemaining  = daysInMonth - daysElapsed
+  const projectedTotal = thisMonthTotal + (avgPerDay * daysRemaining)
+  const projectedSavings    = simIncome - projectedTotal
+  const projectedSavingsRate = simIncome > 0 ? (projectedSavings / simIncome) * 100 : 0
+
+  // Goal simulator
+  const totalGoalAllocations    = Object.values(goalAllocations).reduce((s, v) => s + v, 0)
+  const goalAllocExceedsSurplus = totalGoalAllocations > simSurplus && simSurplus > 0
+
+  function monthsToReach(goal: SavingsGoal, monthly: number): number | null {
+    if (monthly <= 0) return null
+    const remaining = goal.target_amount - goal.current_amount
+    if (remaining <= 0) return 0
+    return Math.ceil(remaining / monthly)
+  }
+
+  // Handlers
+  const handleResetFromActuals = () => { setSimCategoryBudgets({ ...categoryTotals }); setActiveScenario('custom') }
+  const handleAutoAllocate5030 = () => {
+    const needs: Category[] = ['housing', 'utilities', 'food', 'transport']
+    const wants: Category[] = ['shopping', 'entertainment', 'personal', 'other']
+    const newB: Partial<Record<Category, number>> = {}
+    const needPool = Math.round(simIncome * 0.50)
+    const wantPool = Math.round(simIncome * 0.30)
+    const avgNeeds = needs.filter(c => (threeMonthCatAvg[c] || 0) > 0)
+    const avgWants = wants.filter(c => (threeMonthCatAvg[c] || 0) > 0)
+    const needTot  = avgNeeds.reduce((s, c) => s + (threeMonthCatAvg[c] || 0), 0)
+    const wantTot  = avgWants.reduce((s, c) => s + (threeMonthCatAvg[c] || 0), 0)
+    avgNeeds.forEach(c => { newB[c] = needTot > 0 ? Math.round((threeMonthCatAvg[c] || 0) / needTot * needPool) : Math.round(needPool / avgNeeds.length) })
+    avgWants.forEach(c => { newB[c] = wantTot > 0 ? Math.round((threeMonthCatAvg[c] || 0) / wantTot * wantPool) : Math.round(wantPool / avgWants.length) })
+    newB.savings = Math.round(simIncome * 0.20)
+    setSimCategoryBudgets(newB); setActiveScenario('custom')
+  }
+  const handleApplyScenario = (s: 'frugal' | 'normal' | 'ambitious') => {
+    const map = { frugal: frugalBudgets, normal: normalBudgets, ambitious: ambitiousBudgets }
+    setSimCategoryBudgets({ ...map[s] }); setActiveScenario(s); setTab('plan')
+  }
+  const updateCatBudget = (cat: Category, val: string) => {
+    const n = parseFloat(val.replace(/[^0-9.]/g, '')) || 0
+    setSimCategoryBudgets(prev => ({ ...prev, [cat]: n }))
+    setActiveScenario('custom')
+  }
+
+  function savedLabel() {
+    if (!savedAt) return null
+    const diffMin = Math.floor((Date.now() - savedAt.getTime()) / 60000)
+    if (diffMin < 1) return 'just now'
+    if (diffMin < 60) return `${diffMin}m ago`
+    return `${Math.floor(diffMin / 60)}h ago`
+  }
+
+  // ── Scenario card helper ────────────────────────────────────────────────────
+  function ScenarioCard({ name, desc, icon, budgetSet, scenarioKey }: {
+    name: string; desc: string; icon: React.ReactNode
+    budgetSet: Partial<Record<Category, number>>; scenarioKey: 'frugal' | 'normal' | 'ambitious'
+  }) {
+    const varTotal = Object.values(budgetSet).reduce((s, v) => s + (v || 0), 0)
+    const surplus  = simIncome - simFixedTotal - varTotal
+    const savRate  = simIncome > 0 ? (surplus / simIncome) * 100 : 0
+    const isActive = activeScenario === scenarioKey
+    return (
+      <div className={`border rounded-xl p-3 flex flex-col gap-2 transition-all ${isActive ? 'border-black' : 'border-gray-100'}`}>
+        <div className="flex items-center gap-1.5 mb-0.5">
+          <span className="text-gray-500">{icon}</span>
+          <p className="text-xs font-semibold text-gray-800">{name}</p>
+          {isActive && <span className="ml-auto text-[10px] bg-black text-white px-1.5 py-0.5 rounded-full">Active</span>}
+        </div>
+        <p className="text-[10px] text-gray-400 leading-relaxed">{desc}</p>
+        <div className="space-y-1 text-xs">
+          <div className="flex justify-between text-gray-500"><span>Variable</span><span className="font-medium">{fmtShort(varTotal)}</span></div>
+          <div className="flex justify-between text-gray-500"><span>Surplus</span>
+            <span className={`font-medium ${surplus >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmtShort(Math.abs(surplus))}{surplus < 0 ? ' deficit' : ''}</span>
+          </div>
+          <div className="flex justify-between text-gray-500"><span>Savings rate</span>
+            <span className={`font-medium ${savRate >= 20 ? 'text-emerald-600' : savRate >= 10 ? 'text-amber-600' : 'text-red-500'}`}>{savRate.toFixed(0)}%</span>
+          </div>
+        </div>
+        <button onClick={() => handleApplyScenario(scenarioKey)}
+          className={`w-full py-1.5 rounded-lg text-xs font-medium transition-all ${isActive ? 'bg-black text-white' : 'border border-gray-200 text-gray-600 hover:border-black hover:text-black'}`}>
+          {isActive ? 'Applied' : 'Apply'}
+        </button>
+      </div>
+    )
+  }
+
+  if (loadingPlan) return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
+      <div className="bg-white rounded-2xl p-8 shadow-xl flex flex-col items-center gap-3">
+        <div className="w-6 h-6 border-2 border-gray-200 border-t-black rounded-full animate-spin" />
+        <p className="text-sm text-gray-400">Loading your plan...</p>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0">
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-xl max-h-[92vh] flex flex-col animate-slide-up">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-gray-100 shrink-0">
+          <div>
+            <h2 className="text-base font-medium text-black">Budget Simulator</h2>
+            <p className="text-xs text-gray-400 mt-0.5">What-if planning · {getMonthLabelFull(selectedMonth)}</p>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {savedAt && <p className="text-[10px] text-gray-300">Saved {savedLabel()}</p>}
+            <button onClick={handleSavePlan} disabled={saving}
+              className="flex items-center gap-1.5 bg-black text-white px-3 py-1.5 rounded-lg text-xs font-medium hover:bg-gray-800 disabled:opacity-50 transition-all">
+              {saving ? <div className="w-3 h-3 border border-white/30 border-t-white rounded-full animate-spin" /> : <Check size={12} />}
+              Save plan
+            </button>
+            <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all"><X size={16} /></button>
+          </div>
+        </div>
+
+        {/* Tabs */}
+        <div className="flex gap-1 mx-5 mt-3 bg-gray-100 p-1 rounded-lg shrink-0">
+          {(['plan', 'project', 'scenarios', 'goals'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`flex-1 py-1 rounded-md text-[11px] font-medium transition-all ${tab === t ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-black'}`}>
+              {t === 'plan' ? 'Planner' : t === 'project' ? 'Forecast' : t === 'scenarios' ? 'Compare' : 'Goals'}
+            </button>
+          ))}
+        </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto px-5 pb-5 pt-4 space-y-4">
+
+          {/* ── TAB 1: PLANNER ── */}
+          {tab === 'plan' && (<>
+            {/* Income */}
+            <div>
+              <label className="text-xs text-gray-400 mb-1 block">Monthly income (Rp)</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
+                <input type="text" inputMode="numeric" value={simIncome === 0 ? '' : String(simIncome)} placeholder="0"
+                  onChange={e => setSimIncome(parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
+                  className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
+              </div>
+              {simIncome > 0 && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(simIncome)}</p>}
+            </div>
+
+            {/* Fixed costs */}
+            <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+              <div className="flex justify-between items-center mb-2">
+                <p className="text-xs font-medium text-gray-500">Fixed costs <span className="text-gray-300 font-normal">(from recurring bills)</span></p>
+                <p className="text-xs font-semibold text-gray-800">{fmtShort(simFixedTotal)}</p>
+              </div>
+              {recurring.length === 0
+                ? <p className="text-xs text-gray-300">No recurring bills set up yet</p>
+                : <div className="flex flex-col gap-1.5">
+                  {recurring.map(r => {
+                    const monthly = r.frequency === 'daily' ? r.amount * 30 : r.frequency === 'weekly' ? r.amount * 4.33 : r.amount
+                    return (
+                      <div key={r.id} className="flex items-center justify-between">
+                        <div className="flex items-center gap-1.5">
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${CATEGORY_CONFIG[r.category].bg} ${CATEGORY_CONFIG[r.category].text}`}>{FREQ_LABELS[r.frequency]}</span>
+                          <span className="text-xs text-gray-600 truncate max-w-[160px]">{r.title}</span>
+                        </div>
+                        <span className="text-xs text-gray-500 shrink-0">{fmtShort(Math.round(monthly))}/mo</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              }
+            </div>
+
+            {/* Category budgets */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-medium text-gray-500">Variable spending budgets</p>
+                <div className="flex gap-1.5">
+                  <button onClick={handleResetFromActuals} className="text-[10px] px-2 py-1 border border-gray-200 rounded-lg text-gray-500 hover:border-black hover:text-black transition-all">Reset actuals</button>
+                  <button onClick={handleAutoAllocate5030} className="text-[10px] px-2 py-1 border border-gray-200 rounded-lg text-gray-500 hover:border-black hover:text-black transition-all">50/30/20</button>
+                </div>
+              </div>
+              <div className="flex flex-col gap-2">
+                {(Object.keys(CATEGORY_CONFIG) as Category[]).map(cat => {
+                  const cfg      = CATEGORY_CONFIG[cat]
+                  const budget   = simCategoryBudgets[cat] || 0
+                  const actual   = categoryTotals[cat] || 0
+                  const avgVal   = threeMonthCatAvg[cat] || 0
+                  const barPct   = simIncome > 0 ? Math.min((budget / simIncome) * 100, 100) : 0
+                  return (
+                    <div key={cat}>
+                      <div className="flex items-center gap-2">
+                        <div className={`w-6 h-6 ${cfg.bg} rounded-lg flex items-center justify-center shrink-0`}>
+                          <span className={cfg.text}>{cfg.icon}</span>
+                        </div>
+                        <span className="text-xs text-gray-600 flex-1">{cfg.label}</span>
+                        <div className="relative w-32 shrink-0">
+                          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 select-none">Rp</span>
+                          <input type="text" inputMode="numeric" value={budget === 0 ? '' : String(budget)} placeholder="0"
+                            onChange={e => updateCatBudget(cat, e.target.value)}
+                            className="w-full border border-gray-200 rounded-lg pl-6 pr-2 py-1.5 text-xs text-black focus:outline-none focus:border-black transition text-right" />
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 ml-8">
+                        <div className="flex-1 bg-gray-100 rounded-full h-1 overflow-hidden">
+                          <div className="h-full bg-black rounded-full transition-all duration-300" style={{ width: `${barPct}%` }} />
+                        </div>
+                        <span className="text-[10px] text-gray-300 shrink-0">
+                          {actual > 0 && `spent ${fmtShort(actual)}`}{avgVal > 0 && actual === 0 && `avg ${fmtShort(avgVal)}`}
+                        </span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* Waterfall summary */}
+            <div className="border border-gray-100 rounded-xl px-4 py-3 space-y-2">
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Monthly breakdown</p>
+              <div className="flex justify-between text-sm"><span className="text-gray-600">Income</span><span className="font-semibold text-black">{fmtShort(simIncome)}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-gray-400">− Fixed costs</span><span className="text-gray-500">−{fmtShort(Math.round(simFixedTotal))}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-gray-400">− Variable budgets</span><span className="text-gray-500">−{fmtShort(simVariableTotal)}</span></div>
+              <div className="h-px bg-gray-100" />
+              <div className="flex justify-between items-center">
+                <span className="text-sm font-medium text-gray-700">= Surplus / Savings</span>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${simSavingsRate >= 20 ? 'bg-emerald-50 text-emerald-700' : simSavingsRate >= 10 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600'}`}>
+                    {simSavingsRate.toFixed(0)}% saved
+                  </span>
+                  <span className={`text-sm font-bold ${simSurplus >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                    {simSurplus >= 0 ? '+' : ''}{fmtShort(Math.round(simSurplus))}
+                  </span>
+                </div>
+              </div>
+              {simSurplus < 0 && (
+                <div className="flex items-center gap-1.5 bg-red-50 rounded-lg px-2.5 py-2">
+                  <AlertTriangle size={12} className="text-red-500 shrink-0" />
+                  <p className="text-xs text-red-600">Budget exceeds income by {fmtShort(Math.abs(simSurplus))}</p>
+                </div>
+              )}
+            </div>
+          </>)}
+
+          {/* ── TAB 2: FORECAST ── */}
+          {tab === 'project' && (<>
+            {/* Days progress */}
+            <div>
+              <div className="flex justify-between text-xs text-gray-400 mb-1.5">
+                <span>Month progress</span>
+                <span>{daysElapsed} / {daysInMonth} days elapsed · {daysRemaining} days left</span>
+              </div>
+              <div className="bg-gray-100 rounded-full h-2 overflow-hidden">
+                <div className="h-full bg-black rounded-full transition-all duration-700" style={{ width: `${(daysElapsed / daysInMonth) * 100}%` }} />
+              </div>
+            </div>
+
+            {/* Stat cards */}
+            <div className="grid grid-cols-2 gap-2">
+              <div className={`rounded-xl px-3 py-2.5 ${projectedTotal > simIncome ? 'bg-red-50' : 'bg-gray-50'}`}>
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Projected spend</p>
+                <p className={`text-sm font-bold ${projectedTotal > simIncome ? 'text-red-600' : 'text-black'}`}>{fmtShort(Math.round(projectedTotal))}</p>
+                <p className="text-[10px] text-gray-400">end of month</p>
+              </div>
+              <div className={`rounded-xl px-3 py-2.5 ${projectedSavings < 0 ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Projected savings</p>
+                <p className={`text-sm font-bold ${projectedSavings < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{projectedSavings < 0 ? '-' : '+'}{fmtShort(Math.abs(Math.round(projectedSavings)))}</p>
+                <p className="text-[10px] text-gray-400">{projectedSavingsRate.toFixed(0)}% of income</p>
+              </div>
+              <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Avg / day</p>
+                <p className="text-sm font-bold text-black">{fmtShort(Math.round(avgPerDay))}</p>
+                <p className="text-[10px] text-gray-400">based on this month</p>
+              </div>
+              <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Spent so far</p>
+                <p className="text-sm font-bold text-black">{fmtShort(Math.round(thisMonthTotal))}</p>
+                <p className="text-[10px] text-gray-400">of {fmtShort(simIncome)} income</p>
+              </div>
+            </div>
+
+            {/* Projected vs income bar */}
+            <div>
+              <div className="flex justify-between text-xs text-gray-400 mb-1.5">
+                <span>Projected spend vs income</span>
+                <span className={projectedTotal > simIncome ? 'text-red-500' : 'text-emerald-600'}>
+                  {projectedTotal > simIncome ? `${fmtShort(Math.round(projectedTotal - simIncome))} over` : `${fmtShort(Math.round(simIncome - projectedTotal))} under`}
+                </span>
+              </div>
+              <div className="bg-gray-100 rounded-full h-3 overflow-hidden">
+                <div className={`h-full rounded-full transition-all duration-700 ${projectedTotal > simIncome ? 'bg-red-500' : projectedTotal > simIncome * 0.8 ? 'bg-amber-500' : 'bg-black'}`}
+                  style={{ width: `${Math.min((projectedTotal / Math.max(simIncome, 1)) * 100, 100)}%` }} />
+              </div>
+            </div>
+
+            {/* Per-category actual vs budget */}
+            <div>
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Category forecast</p>
+              <div className="flex flex-col gap-3">
+                {(Object.keys(CATEGORY_CONFIG) as Category[]).map(cat => {
+                  const actual  = categoryTotals[cat] || 0
+                  const budget  = simCategoryBudgets[cat] || 0
+                  if (actual === 0 && budget === 0) return null
+                  const pctActual = budget > 0 ? Math.min((actual / budget) * 100, 100) : 0
+                  const over = budget > 0 && actual > budget
+                  const warn = !over && budget > 0 && pctActual >= 80
+                  const chipClass = over ? 'bg-red-50 text-red-600' : warn ? 'bg-amber-50 text-amber-600' : budget === 0 ? 'bg-gray-100 text-gray-400' : 'bg-emerald-50 text-emerald-700'
+                  const chipLabel = over ? 'Over' : warn ? 'Watch' : budget === 0 ? 'No budget' : 'On track'
+                  const cfg = CATEGORY_CONFIG[cat]
+                  return (
+                    <div key={cat}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className={cfg.text}>{cfg.icon}</span>
+                          <span className="text-xs text-gray-600">{cfg.label}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs text-gray-400">{fmtShort(actual)}{budget > 0 && ` / ${fmtShort(budget)}`}</span>
+                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${chipClass}`}>{chipLabel}</span>
+                        </div>
+                      </div>
+                      {budget > 0 && (
+                        <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                          <div className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-red-500' : warn ? 'bg-amber-500' : 'bg-black'}`} style={{ width: `${pctActual}%` }} />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </>)}
+
+          {/* ── TAB 3: SCENARIOS ── */}
+          {tab === 'scenarios' && (<>
+            <p className="text-xs text-gray-400">Compare budget scenarios — apply one to load it into the Planner.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+              <ScenarioCard
+                name="Frugal" scenarioKey="frugal" budgetSet={frugalBudgets}
+                icon={<TrendingDown size={13} />}
+                desc="−30% across all variable budgets. Maximize savings." />
+              <ScenarioCard
+                name="Normal" scenarioKey="normal" budgetSet={normalBudgets}
+                icon={<BarChart2 size={13} />}
+                desc="Last month's actual spending. Steady and realistic." />
+              <ScenarioCard
+                name="Ambitious" scenarioKey="ambitious" budgetSet={ambitiousBudgets}
+                icon={<Target size={13} />}
+                desc="Optimized around your savings goals. Goal-focused." />
+            </div>
+            <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+              <p className="text-xs text-gray-500 mb-1">Your current custom plan</p>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-black">{fmtShort(simVariableTotal)} variable</p>
+                  <p className={`text-xs ${simSurplus >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {simSurplus >= 0 ? '+' : ''}{fmtShort(Math.abs(Math.round(simSurplus)))} surplus · {simSavingsRate.toFixed(0)}% saved
+                  </p>
+                </div>
+                {activeScenario !== 'custom' && (
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium capitalize ${activeScenario === 'frugal' ? 'bg-emerald-50 text-emerald-700' : activeScenario === 'normal' ? 'bg-blue-50 text-blue-700' : 'bg-purple-50 text-purple-700'}`}>
+                    {activeScenario} applied
+                  </span>
+                )}
+              </div>
+            </div>
+          </>)}
+
+          {/* ── TAB 4: GOALS ── */}
+          {tab === 'goals' && (<>
+            {savingsGoals.length === 0 ? (
+              <div className="text-center py-8">
+                <Flag size={28} className="mx-auto mb-2 text-gray-200" />
+                <p className="text-xs text-gray-400 font-medium mb-0.5">No savings goals set up</p>
+                <p className="text-xs text-gray-300">Add goals from the dashboard to simulate here</p>
+              </div>
+            ) : (<>
+              {goalAllocExceedsSurplus && (
+                <div className="flex items-center gap-2 bg-red-50 rounded-xl px-3 py-2.5">
+                  <AlertTriangle size={13} className="text-red-500 shrink-0" />
+                  <p className="text-xs text-red-600">Total allocations exceed your projected surplus of {fmtShort(Math.max(simSurplus, 0))}</p>
+                </div>
+              )}
+              <div className="flex flex-col gap-3">
+                {savingsGoals.map(goal => {
+                  const alloc   = goalAllocations[goal.id] || 0
+                  const months  = monthsToReach(goal, alloc)
+                  const pct     = Math.min((goal.current_amount / goal.target_amount) * 100, 100)
+                  const done    = goal.current_amount >= goal.target_amount
+                  const sliderMax = Math.max(simSurplus, 0)
+                  let deadlineChip: { label: string; cls: string } | null = null
+                  if (goal.deadline && months !== null && months > 0) {
+                    const deadlineMonths = Math.ceil((new Date(goal.deadline).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30))
+                    deadlineChip = months <= deadlineMonths
+                      ? { label: `On track (${deadlineMonths}mo left)`, cls: 'bg-emerald-50 text-emerald-700' }
+                      : { label: `Behind (need ${months}mo, have ${deadlineMonths})`, cls: 'bg-red-50 text-red-600' }
+                  }
+                  return (
+                    <div key={goal.id} className="border border-gray-100 rounded-xl p-3.5 space-y-2.5">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{goal.title}</p>
+                          <p className="text-xs text-gray-400">{fmtShort(goal.current_amount)} / {fmtShort(goal.target_amount)}</p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          {done ? <span className="text-xs text-emerald-500 font-medium">Reached!</span>
+                          : months === null ? <span className="text-xs text-gray-300">Set allocation</span>
+                          : months === 0 ? <span className="text-xs text-emerald-500">Already done!</span>
+                          : <span className="text-sm font-bold text-black">{months}<span className="text-xs font-normal text-gray-400"> months</span></span>}
+                        </div>
+                      </div>
+                      <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                        <div className="h-full bg-black rounded-full" style={{ width: `${pct}%` }} />
+                      </div>
+                      {!done && (<>
+                        <div className="flex items-center justify-between text-xs text-gray-400">
+                          <span>Monthly allocation</span>
+                          <span className="font-medium text-black">{fmtShort(alloc)}</span>
+                        </div>
+                        <input type="range" min={0} max={sliderMax || 1000000} step={10000} value={alloc}
+                          onChange={e => setGoalAllocations(prev => ({ ...prev, [goal.id]: parseInt(e.target.value) }))}
+                          disabled={sliderMax === 0}
+                          className="w-full accent-black" />
+                        {deadlineChip && <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${deadlineChip.cls}`}>{deadlineChip.label}</span>}
+                      </>)}
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="bg-gray-50 rounded-xl px-3 py-2.5 flex justify-between items-center">
+                <span className="text-xs text-gray-500">Total monthly allocations</span>
+                <div className="text-right">
+                  <span className={`text-sm font-bold ${goalAllocExceedsSurplus ? 'text-red-600' : 'text-black'}`}>{fmtShort(totalGoalAllocations)}</span>
+                  <p className="text-[10px] text-gray-400">of {fmtShort(Math.max(simSurplus, 0))} surplus</p>
+                </div>
+              </div>
+            </>)}
+          </>)}
+
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [expenses, setExpenses]               = useState<Expense[]>([])
@@ -1406,6 +1959,7 @@ export default function Dashboard() {
   const [showAddPool, setShowAddPool]         = useState(false)
   const [loggingPool, setLoggingPool]         = useState<ExpensePool | null>(null)
   const [openPool, setOpenPool]               = useState<ExpensePool | null>(null)
+  const [showSimulator, setShowSimulator]     = useState(false)
   const [menuOpen, setMenuOpen]               = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
   const router  = useRouter()
@@ -1801,6 +2355,10 @@ export default function Dashboard() {
                 className={`p-1.5 border rounded-lg transition-all ${showSearch ? 'bg-black border-black text-white' : 'border-gray-200 text-gray-600 hover:border-black hover:bg-gray-50'}`}>
                 <Search size={14} />
               </button>
+              <button onClick={() => setShowSimulator(true)}
+                className="flex items-center gap-1.5 border border-gray-200 hover:border-black hover:bg-gray-50 text-gray-600 hover:text-black px-3 py-1.5 rounded-lg text-sm font-medium transition-all active:scale-[.98]">
+                <Calculator size={14} /> Simulate
+              </button>
               <button onClick={() => setShowAddIncome(true)}
                 className="flex items-center gap-1.5 border border-gray-200 hover:border-black hover:bg-gray-50 text-gray-600 hover:text-black px-3 py-1.5 rounded-lg text-sm font-medium transition-all active:scale-[.98]">
                 <ArrowUpCircle size={14} /> Income
@@ -1830,6 +2388,7 @@ export default function Dashboard() {
                     <button onClick={() => { setShowAddIncome(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><ArrowUpCircle size={14} className="text-green-600" /> Add Income</button>
                     <button onClick={() => { setShowAddExpense(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><ArrowDownCircle size={14} /> Add Expense</button>
                     <button onClick={() => { setShowAddBill(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><CreditCard size={14} className="text-blue-500" /> Add Bill</button>
+                    <button onClick={() => { setShowSimulator(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><Calculator size={14} className="text-purple-500" /> Budget Simulator</button>
                     <div className="h-px bg-gray-100 my-1" />
                     <button onClick={() => { handleLogout(); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-red-500 hover:bg-red-50"><LogOut size={14} /> Logout</button>
                   </div>
@@ -2095,7 +2654,7 @@ export default function Dashboard() {
           <CollapsibleSection
             title="Expense pools" icon={<Wallet size={13} />}
             defaultOpen={expensePools.length > 0}
-            badge={expensePools.length} badgeColor="bg-blue-500"
+            badge={expensePools.length} badgeColor="bg-red-500"
             headerRight={
               <button onClick={e => { e.stopPropagation(); setShowAddPool(true) }}
                 className="flex items-center gap-1 text-xs text-gray-400 hover:text-black transition-colors">
@@ -2513,6 +3072,11 @@ export default function Dashboard() {
         />}
       {showAddBill    && <AddBillModal    onClose={() => setShowAddBill(false)}    onSave={handleAddBill} />}
       {editingBill    && <EditBillModal   item={editingBill} onClose={() => setEditingBill(null)} onSave={handleSaveEditBill} />}
+      {showSimulator  && <BudgetSimulatorModal
+          thisMonthIncomeTot={thisMonthIncomeTot} thisMonthTotal={thisMonthTotal} avgPerDay={avgPerDay}
+          categoryTotals={categoryTotals} last6Months={last6Months} expenses={expenses}
+          recurring={recurring} budgets={budgets} savingsGoals={savingsGoals}
+          selectedMonth={selectedMonth} onClose={() => setShowSimulator(false)} />}
       {showAddPool    && <AddPoolModal    onClose={() => setShowAddPool(false)}   onSave={handleAddPool} />}
       {loggingPool    && (() => { const stats = poolsThisMonth.find(s => s.pool.id === loggingPool.id); return stats ? <LogPoolEntryModal pool={loggingPool} remaining={stats.remaining} onClose={() => setLoggingPool(null)} onSave={(amt, note) => handleLogPoolEntry(loggingPool, amt, note)} /> : null })()}
       {openPool       && (() => { const stats = poolsThisMonth.find(s => s.pool.id === openPool.id); return stats ? <PoolDetailModal stats={stats} selectedMonth={selectedMonth} onClose={() => setOpenPool(null)} onLogEntry={() => {}} onDeleteEntry={handleDeletePoolEntry} onEditPool={(u) => handleEditPool(openPool.id, u)} onArchivePool={() => handleArchivePool(openPool.id)} onOpenLog={() => { setLoggingPool(openPool); setOpenPool(null) }} /> : null })()}
