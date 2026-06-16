@@ -11,7 +11,8 @@ import {
   DollarSign, Briefcase, BarChart2, PiggyBank, ArrowUpCircle, ArrowDownCircle,
   Lightbulb, AlertTriangle, Flag, Flame, Search, ChevronDown,
   User, Home, Zap, Menu, ChevronLeft, ChevronRight, History, CreditCard,
-  MoreVertical, Undo2, Download, SlidersHorizontal, Tv, Eye, EyeOff, Calculator
+  MoreVertical, Undo2, Download, SlidersHorizontal, Tv, Eye, EyeOff, Calculator,
+  Users, UserPlus
 } from 'lucide-react'
 
 type Category = 'food' | 'transport' | 'shopping' | 'health' | 'personal' | 'housing' | 'utilities' | 'entertainment' | 'savings' | 'other'
@@ -29,6 +30,13 @@ interface Income {
 }
 interface Budget {
   id: string; user_id: string; category: Category; limit_amount: number; month: string
+}
+interface BudgetProfile {
+  id: string; user_id: string; name: string
+  sim_income: number
+  category_budgets: Partial<Record<Category, number>>
+  goal_allocations: Record<string, number>
+  created_at: string; updated_at: string
 }
 interface SavingsGoal {
   id: string; user_id: string; title: string; target_amount: number
@@ -53,6 +61,18 @@ interface ExpensePoolEntry {
 interface ExpensePoolWithStats {
   pool: ExpensePool; entries: ExpensePoolEntry[]
   spent: number; remaining: number; pct: number
+}
+interface SplitBill {
+  id: string; user_id: string; title: string; total_amount: number
+  category: Category; note?: string; is_archived: boolean; created_at: string
+}
+interface SplitBillParticipant {
+  id: string; bill_id: string; user_id: string; name: string
+  share_amount: number; is_paid: boolean; created_at: string
+}
+interface SplitBillWithStats {
+  bill: SplitBill; participants: SplitBillParticipant[]
+  owed: number; collected: number; paidCount: number; settled: boolean
 }
 
 const CATEGORY_CONFIG: Record<Category, { label: string; icon: React.ReactNode; bg: string; text: string }> = {
@@ -90,6 +110,13 @@ function fmtShort(amount: number): string {
   if (amount >= 1_000_000)         return `Rp ${(amount / 1_000_000).toFixed(1)}jt`
   if (amount >= 1_000)             return `Rp ${(amount / 1_000).toFixed(0)}rb`
   return `Rp ${amount}`
+}
+// Thousand-separated input helpers (Indonesian grouping, e.g. 2300000 -> "2.300.000")
+function groupId(n: number): string {
+  return n ? n.toLocaleString('id-ID') : ''
+}
+function parseRp(str: string): number {
+  return parseInt(str.replace(/\D/g, ''), 10) || 0
 }
 function inMonth(dateStr: string, month: string): boolean {
   const d = new Date(dateStr)
@@ -1365,19 +1392,333 @@ function PoolDetailModal({ stats, selectedMonth, onClose, onLogEntry, onDeleteEn
   )
 }
 
+// ─── Add Split Bill Modal ─────────────────────────────────────────────────────
+function AddSplitBillModal({ onClose, onSave }: {
+  onClose: () => void
+  onSave: (
+    data: { title: string; total_amount: number; category: Category; note: string },
+    participants: { name: string; share_amount: number }[]
+  ) => Promise<void>
+}) {
+  const [title, setTitle]       = useState('')
+  const [amount, setAmount]     = useState('')
+  const [category, setCategory] = useState<Category>('food')
+  const [note, setNote]         = useState('')
+  const [names, setNames]       = useState<string[]>(['', ''])
+  const [customShares, setCustomShares] = useState<Record<number, number>>({})
+  const [splitEqually, setSplitEqually] = useState(true)
+  const [includeMe, setIncludeMe]       = useState(true)
+  const [saving, setSaving]     = useState(false)
+
+  const total       = parseRp(amount)
+  const trimmedNames = names.map(n => n.trim())
+  const filledCount  = trimmedNames.filter(Boolean).length
+
+  // Equal split: each person (incl. me, if chosen) owes total / n; remainder goes to me
+  // when I'm included, otherwise to the first participants so shares sum exactly.
+  const equalShares = (): number[] => {
+    const n = filledCount + (includeMe ? 1 : 0)
+    if (n === 0) return trimmedNames.map(() => 0)
+    const base = Math.floor(total / n)
+    const shares = trimmedNames.map(nm => nm ? base : 0)
+    if (!includeMe) {
+      let rem = total - base * filledCount
+      for (let i = 0; rem > 0 && i < shares.length; i++) { if (trimmedNames[i]) { shares[i] += 1; rem-- } }
+    }
+    return shares
+  }
+
+  const shares    = splitEqually ? equalShares() : trimmedNames.map((_, i) => customShares[i] || 0)
+  const owedTotal = trimmedNames.reduce((s, nm, i) => s + (nm ? shares[i] : 0), 0)
+  const myShare   = includeMe ? Math.max(total - owedTotal, 0) : 0
+
+  const addName    = () => setNames(prev => [...prev, ''])
+  const removeName = (idx: number) => { setNames(prev => prev.filter((_, i) => i !== idx)); setCustomShares(prev => { const n = { ...prev }; delete n[idx]; return n }) }
+  const setName    = (idx: number, v: string) => setNames(prev => prev.map((n, i) => i === idx ? v : n))
+  const setShare   = (idx: number, v: string) => setCustomShares(prev => ({ ...prev, [idx]: parseRp(v) }))
+
+  const canSave = !!title.trim() && total > 0 && filledCount > 0
+  const handleSave = async () => {
+    if (!canSave) return
+    const participants = trimmedNames.map((nm, i) => ({ name: nm, share_amount: shares[i] })).filter(p => p.name)
+    setSaving(true)
+    await onSave({ title: title.trim(), total_amount: total, category, note: note.trim() }, participants)
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0">
+      <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-xl max-h-[90vh] overflow-y-auto animate-slide-up">
+        <div className="flex justify-between items-center mb-5">
+          <div><h2 className="text-base font-medium text-black">Split a bill</h2><p className="text-xs text-gray-400 mt-0.5">Track who owes you</p></div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all"><X size={16} /></button>
+        </div>
+        <div className="mb-4">
+          <label className="text-xs text-gray-400 mb-2 block">Category</label>
+          <div className="grid grid-cols-4 gap-1.5">
+            {(Object.keys(CATEGORY_CONFIG) as Category[]).filter(c => c !== 'savings').map(c => {
+              const cfg = CATEGORY_CONFIG[c]; const active = category === c
+              return (
+                <button key={c} type="button" onClick={() => setCategory(c)}
+                  className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-xs font-medium transition-all ${active ? `${cfg.bg} ${cfg.text} ring-1 ring-current` : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>
+                  <span className={active ? cfg.text : 'text-gray-400'}>{cfg.icon}</span>
+                  <span className="text-[10px] leading-none">{cfg.label.split(' ')[0]}</span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Total bill (Rp)</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
+              <input type="text" inputMode="numeric" value={groupId(total)} onChange={e => setAmount(e.target.value)} placeholder="0" autoFocus
+                className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">{"What's it for?"}</label>
+            <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Makan di Sushi Tei, Trip Bali..."
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+          </div>
+
+          {/* Split options */}
+          <div className="flex items-center gap-2">
+            <button type="button" onClick={() => setSplitEqually(v => !v)}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${splitEqually ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-500 hover:border-black hover:text-black'}`}>
+              Split equally
+            </button>
+            <button type="button" onClick={() => setIncludeMe(v => !v)}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-all ${includeMe ? 'bg-gray-100 text-black border-gray-200' : 'border-gray-200 text-gray-400 hover:text-black'}`}>
+              {includeMe ? '✓ ' : ''}Include me
+            </button>
+          </div>
+
+          {/* Participants */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-xs text-gray-400">People who owe you</label>
+              <button type="button" onClick={addName} className="flex items-center gap-1 text-[11px] text-gray-500 hover:text-black transition-colors"><UserPlus size={12} /> Add person</button>
+            </div>
+            <div className="flex flex-col gap-1.5">
+              {names.map((nm, i) => (
+                <div key={i} className="flex items-center gap-1.5">
+                  <input value={nm} onChange={e => setName(i, e.target.value)} placeholder={`Person ${i + 1}`}
+                    className="flex-1 border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-black focus:outline-none focus:border-black transition" />
+                  <div className="relative w-28 shrink-0">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 select-none">Rp</span>
+                    <input type="text" inputMode="numeric" value={groupId(shares[i] || 0)} disabled={splitEqually}
+                      onChange={e => setShare(i, e.target.value)}
+                      className="w-full border border-gray-200 rounded-lg pl-6 pr-2 py-1.5 text-xs text-black focus:outline-none focus:border-black transition text-right disabled:bg-gray-50 disabled:text-gray-400" />
+                  </div>
+                  {names.length > 1 && (
+                    <button type="button" onClick={() => removeName(i)} className="p-1 rounded-lg text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all"><X size={14} /></button>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {total > 0 && filledCount > 0 && (
+            <div className="bg-gray-50 rounded-xl px-3 py-2.5 space-y-1">
+              <div className="flex justify-between text-xs"><span className="text-gray-500">Owed to you</span><span className="font-semibold text-black">{fmt(owedTotal)}</span></div>
+              {includeMe && <div className="flex justify-between text-xs"><span className="text-gray-400">Your share</span><span className="text-gray-500">{fmt(myShare)}</span></div>}
+              {!splitEqually && owedTotal + myShare !== total && (
+                <p className="text-[10px] text-amber-600">{"Shares don't add up to the total"} ({fmt(total)})</p>
+              )}
+            </div>
+          )}
+
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Note <span className="text-gray-300">(optional)</span></label>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="Add a note..."
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+          </div>
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} className="flex-1 border border-gray-200 rounded-lg py-2.5 text-sm text-gray-600 hover:bg-gray-50 transition">Cancel</button>
+          <button onClick={handleSave} disabled={saving || !canSave}
+            className="flex-1 bg-black text-white rounded-lg py-2.5 text-sm font-medium hover:bg-gray-800 active:scale-[.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Plus size={14} /> Create split</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Split Bill Detail Modal ──────────────────────────────────────────────────
+function SplitBillDetailModal({ stats, onClose, onTogglePaid, onAddParticipant, onDeleteParticipant, onEditBill, onDeleteBill }: {
+  stats: SplitBillWithStats; onClose: () => void
+  onTogglePaid: (p: SplitBillParticipant) => Promise<void>
+  onAddParticipant: (name: string, share: number) => Promise<void>
+  onDeleteParticipant: (p: SplitBillParticipant) => Promise<void>
+  onEditBill: (updated: Partial<Pick<SplitBill, 'title' | 'total_amount' | 'category' | 'note'>>) => Promise<void>
+  onDeleteBill: () => Promise<void>
+}) {
+  const { bill, participants, owed, collected, settled } = stats
+  const [tab, setTab]               = useState<'people' | 'edit'>('people')
+  const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [newName, setNewName]       = useState('')
+  const [newShare, setNewShare]     = useState('')
+  const [addingPerson, setAddingPerson] = useState(false)
+  const [editTitle, setEditTitle]   = useState(bill.title)
+  const [editAmount, setEditAmount] = useState(String(bill.total_amount))
+  const [editCategory, setEditCategory] = useState<Category>(bill.category)
+  const [editNote, setEditNote]     = useState(bill.note ?? '')
+  const [editSaving, setEditSaving] = useState(false)
+  const [deleting, setDeleting]     = useState(false)
+
+  const cfg = CATEGORY_CONFIG[bill.category]
+  const pct = bill.total_amount > 0 ? Math.min((collected / bill.total_amount) * 100, 100) : 0
+
+  const handleToggle = async (p: SplitBillParticipant) => { setTogglingId(p.id); await onTogglePaid(p); setTogglingId(null) }
+  const handleAdd = async () => {
+    if (!newName.trim()) return
+    setAddingPerson(true); await onAddParticipant(newName.trim(), parseRp(newShare)); setAddingPerson(false)
+    setNewName(''); setNewShare('')
+  }
+  const handleEdit = async () => {
+    if (!editTitle.trim() || parseRp(editAmount) <= 0) return
+    setEditSaving(true)
+    await onEditBill({ title: editTitle.trim(), total_amount: parseRp(editAmount), category: editCategory, note: editNote.trim() })
+    setEditSaving(false)
+  }
+  const handleDelete = async () => { setDeleting(true); await onDeleteBill(); setDeleting(false) }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0">
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl max-h-[88vh] flex flex-col animate-slide-up">
+        <div className="flex items-start justify-between p-5 pb-3 border-b border-gray-100">
+          <div className="flex-1 min-w-0 mr-3">
+            <p className="text-base font-medium text-black truncate">{bill.title}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{fmt(bill.total_amount)} total · {participants.length} {participants.length === 1 ? 'person' : 'people'}</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all shrink-0"><X size={16} /></button>
+        </div>
+        <div className="px-5 pt-3 pb-0">
+          <div className="bg-gray-100 rounded-full h-2.5 overflow-hidden mb-1">
+            <div className={`h-full rounded-full transition-all duration-700 ${settled ? 'bg-emerald-500' : 'bg-black'}`} style={{ width: `${pct}%` }} />
+          </div>
+          <div className="flex justify-between">
+            <span className="text-xs text-gray-400">{fmt(collected)} collected</span>
+            {settled ? <span className="text-xs text-emerald-500 font-medium">All settled</span>
+                     : <span className="text-xs text-gray-500 font-medium">{fmt(owed)} owed to you</span>}
+          </div>
+        </div>
+        <div className="flex gap-1 mx-5 mt-3 bg-gray-100 p-1 rounded-lg">
+          {(['people', 'edit'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`flex-1 py-1 rounded-md text-xs font-medium transition-all ${tab === t ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-black'}`}>
+              {t === 'people' ? `People (${participants.length})` : 'Edit'}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 pb-5 pt-3">
+          {tab === 'people' && (
+            <div className="space-y-2">
+              {participants.map(p => (
+                <div key={p.id} className="flex items-center gap-3 border border-gray-100 rounded-xl px-3 py-2.5 group">
+                  <button onClick={() => handleToggle(p)} disabled={togglingId === p.id}
+                    className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-all ${p.is_paid ? 'bg-emerald-50 text-emerald-600' : `${cfg.bg} ${cfg.text}`}`}>
+                    {togglingId === p.id ? <div className="w-3.5 h-3.5 border border-gray-400 border-t-transparent rounded-full animate-spin" /> : p.is_paid ? <Check size={16} /> : <Users size={15} />}
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{p.name}</p>
+                    <p className={`text-xs ${p.is_paid ? 'text-emerald-500' : 'text-gray-400'}`}>{fmt(p.share_amount)} · {p.is_paid ? 'paid' : 'unpaid'}</p>
+                  </div>
+                  <button onClick={() => handleToggle(p)} disabled={togglingId === p.id}
+                    className={`text-[11px] px-2.5 py-1 rounded-lg border font-medium transition-all shrink-0 ${p.is_paid ? 'border-gray-200 text-gray-400 hover:text-black' : 'border-emerald-200 text-emerald-600 hover:bg-emerald-50'}`}>
+                    {p.is_paid ? 'Undo' : 'Mark paid'}
+                  </button>
+                  <button onClick={() => onDeleteParticipant(p)} className="p-1.5 rounded-lg hover:bg-red-50 text-gray-300 hover:text-red-500 transition-all shrink-0"><Trash2 size={12} /></button>
+                </div>
+              ))}
+              {/* Add person */}
+              <div className="flex items-center gap-1.5 pt-1">
+                <input value={newName} onChange={e => setNewName(e.target.value)} placeholder="Add a person..."
+                  onKeyDown={e => { if (e.key === 'Enter') handleAdd() }}
+                  className="flex-1 border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-black focus:outline-none focus:border-black transition" />
+                <div className="relative w-24 shrink-0">
+                  <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 select-none">Rp</span>
+                  <input type="text" inputMode="numeric" value={groupId(parseRp(newShare))} onChange={e => setNewShare(e.target.value)} placeholder="0"
+                    className="w-full border border-gray-200 rounded-lg pl-6 pr-2 py-1.5 text-xs text-black focus:outline-none focus:border-black transition text-right" />
+                </div>
+                <button onClick={handleAdd} disabled={addingPerson || !newName.trim()}
+                  className="w-8 h-8 flex items-center justify-center bg-black text-white rounded-lg hover:bg-gray-800 transition-all disabled:opacity-40 shrink-0">
+                  {addingPerson ? <div className="w-3.5 h-3.5 border border-white/30 border-t-white rounded-full animate-spin" /> : <Plus size={14} />}
+                </button>
+              </div>
+              {bill.note && <p className="text-xs text-gray-400 italic pt-1">{bill.note}</p>}
+            </div>
+          )}
+          {tab === 'edit' && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-2 block">Category</label>
+                <div className="grid grid-cols-4 gap-1.5">
+                  {(Object.keys(CATEGORY_CONFIG) as Category[]).filter(c => c !== 'savings').map(c => {
+                    const cat = CATEGORY_CONFIG[c]; const active = editCategory === c
+                    return (
+                      <button key={c} type="button" onClick={() => setEditCategory(c)}
+                        className={`flex flex-col items-center gap-1 py-2.5 rounded-xl text-xs font-medium transition-all ${active ? `${cat.bg} ${cat.text} ring-1 ring-current` : 'bg-gray-50 text-gray-400 hover:bg-gray-100'}`}>
+                        <span className={active ? cat.text : 'text-gray-400'}>{cat.icon}</span>
+                        <span className="text-[10px] leading-none">{cat.label.split(' ')[0]}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Title</label>
+                <input value={editTitle} onChange={e => setEditTitle(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Total bill (Rp)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
+                  <input type="text" inputMode="numeric" value={groupId(parseRp(editAmount))} onChange={e => setEditAmount(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Note <span className="text-gray-300">(optional)</span></label>
+                <input value={editNote} onChange={e => setEditNote(e.target.value)} placeholder="Add a note..."
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+              </div>
+              <button onClick={handleEdit} disabled={editSaving}
+                className="w-full bg-black text-white rounded-lg py-2.5 text-sm font-medium hover:bg-gray-800 active:scale-[.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                {editSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Check size={14} /> Save changes</>}
+              </button>
+              <div className="pt-2 border-t border-gray-100">
+                <button onClick={handleDelete} disabled={deleting}
+                  className="w-full border border-red-200 text-red-500 hover:bg-red-50 rounded-lg py-2.5 text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                  {deleting ? <div className="w-4 h-4 border-2 border-red-300 border-t-red-500 rounded-full animate-spin" /> : <><Trash2 size={14} /> Delete this bill</>}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Budget Simulator Modal ───────────────────────────────────────────────────
 function BudgetSimulatorModal({
-  thisMonthIncomeTot, thisMonthTotal, avgPerDay, categoryTotals,
+  thisMonthIncomeTot, categoryTotals,
   last6Months, expenses, recurring, budgets, savingsGoals, selectedMonth, onClose
 }: {
-  thisMonthIncomeTot: number; thisMonthTotal: number; avgPerDay: number
+  thisMonthIncomeTot: number
   categoryTotals: Partial<Record<Category, number>>
   last6Months: { key: string; label: string; total: number }[]
   expenses: Expense[]; recurring: RecurringExpense[]
   budgets: Budget[]; savingsGoals: SavingsGoal[]
   selectedMonth: string; onClose: () => void
 }) {
-  const [tab, setTab] = useState<'plan' | 'project' | 'scenarios' | 'goals'>('plan')
+  const [tab, setTab] = useState<'plan' | 'scenarios' | 'goals'>('plan')
   const [simIncome, setSimIncome] = useState(thisMonthIncomeTot || 0)
   const [simCategoryBudgets, setSimCategoryBudgets] = useState<Partial<Record<Category, number>>>(() => {
     const init: Partial<Record<Category, number>> = {}
@@ -1393,34 +1734,116 @@ function BudgetSimulatorModal({
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<Date | null>(null)
   const [loadingPlan, setLoadingPlan] = useState(true)
+  const [profiles, setProfiles] = useState<BudgetProfile[]>([])
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null)
+  const [profileMenuOpen, setProfileMenuOpen] = useState(false)
+  const [namingMode, setNamingMode] = useState<'new' | 'rename' | null>(null)
+  const [nameDraft, setNameDraft] = useState('')
+
+  const activeProfile = profiles.find(p => p.id === activeProfileId) || null
+
+  const loadProfileIntoEditor = (p: BudgetProfile) => {
+    setActiveProfileId(p.id)
+    setSimIncome(p.sim_income || thisMonthIncomeTot || 0)
+    setSimCategoryBudgets(p.category_budgets || {})
+    setGoalAllocations(p.goal_allocations || {})
+    setActiveScenario('custom')
+    setSavedAt(new Date(p.updated_at))
+  }
 
   useEffect(() => {
     const load = async () => {
       const { data: ud } = await supabase.auth.getUser()
       const user = ud.user; if (!user) { setLoadingPlan(false); return }
-      const { data } = await supabase.from('budget_simulations').select('*').eq('user_id', user.id).maybeSingle()
-      if (data) {
-        setSimIncome(data.sim_income || thisMonthIncomeTot || 0)
-        setSimCategoryBudgets(data.category_budgets || {})
-        setGoalAllocations(data.goal_allocations || {})
-        setSavedAt(new Date(data.updated_at))
+      const { data } = await supabase.from('budget_simulations').select('*').eq('user_id', user.id).order('created_at', { ascending: true })
+      const list = (data || []) as BudgetProfile[]
+      setProfiles(list)
+      if (list.length > 0) {
+        const active = [...list].sort((a, b) => new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime())[0]
+        loadProfileIntoEditor(active)
       }
       setLoadingPlan(false)
     }
     load()
   }, [])
 
+  const planPayload = () => ({
+    sim_income: simIncome,
+    category_budgets: simCategoryBudgets,
+    goal_allocations: goalAllocations,
+  })
+
   const handleSavePlan = async () => {
     setSaving(true)
     const { data: ud } = await supabase.auth.getUser()
     const user = ud.user; if (!user) { setSaving(false); return }
-    await supabase.from('budget_simulations').upsert({
-      user_id: user.id, sim_income: simIncome,
-      category_budgets: simCategoryBudgets,
-      goal_allocations: goalAllocations,
-      updated_at: new Date().toISOString()
-    }, { onConflict: 'user_id' })
-    setSavedAt(new Date()); setSaving(false)
+    const now = new Date().toISOString()
+    if (activeProfileId) {
+      const { error } = await supabase.from('budget_simulations')
+        .update({ ...planPayload(), updated_at: now }).eq('id', activeProfileId)
+      if (!error) {
+        setProfiles(prev => prev.map(p => p.id === activeProfileId ? { ...p, ...planPayload(), updated_at: now } : p))
+        setSavedAt(new Date())
+      }
+    } else {
+      const { data: inserted, error } = await supabase.from('budget_simulations')
+        .insert({ user_id: user.id, name: 'My plan', ...planPayload(), updated_at: now }).select().single()
+      if (!error && inserted) {
+        setProfiles(prev => [...prev, inserted as BudgetProfile])
+        setActiveProfileId(inserted.id)
+        setSavedAt(new Date())
+      }
+    }
+    setSaving(false)
+  }
+
+  const handleSelectProfile = (id: string) => {
+    const p = profiles.find(pf => pf.id === id)
+    if (p) loadProfileIntoEditor(p)
+    setProfileMenuOpen(false)
+  }
+
+  // Creates a new profile seeded with the current editor values (duplicate-current)
+  const handleCreateProfile = async (name: string) => {
+    const { data: ud } = await supabase.auth.getUser()
+    const user = ud.user; if (!user) return
+    const trimmed = name.trim() || `Plan ${profiles.length + 1}`
+    const now = new Date().toISOString()
+    const { data: inserted, error } = await supabase.from('budget_simulations')
+      .insert({ user_id: user.id, name: trimmed, ...planPayload(), updated_at: now }).select().single()
+    if (!error && inserted) {
+      setProfiles(prev => [...prev, inserted as BudgetProfile])
+      setActiveProfileId(inserted.id)
+      setSavedAt(new Date())
+    }
+  }
+
+  const handleRenameProfile = async (name: string) => {
+    if (!activeProfileId) return
+    const trimmed = name.trim(); if (!trimmed) return
+    const { error } = await supabase.from('budget_simulations').update({ name: trimmed }).eq('id', activeProfileId)
+    if (!error) setProfiles(prev => prev.map(p => p.id === activeProfileId ? { ...p, name: trimmed } : p))
+  }
+
+  const handleDeleteProfile = async () => {
+    if (!activeProfileId) return
+    const id = activeProfileId
+    await supabase.from('budget_simulations').delete().eq('id', id)
+    const remaining = profiles.filter(p => p.id !== id)
+    setProfiles(remaining)
+    if (remaining.length > 0) {
+      loadProfileIntoEditor(remaining[0])
+    } else {
+      setActiveProfileId(null); setSavedAt(null)
+      setSimCategoryBudgets({}); setGoalAllocations({})
+    }
+    setProfileMenuOpen(false)
+  }
+
+  const submitName = () => {
+    if (namingMode === 'new') handleCreateProfile(nameDraft)
+    else if (namingMode === 'rename') handleRenameProfile(nameDraft)
+    setNamingMode(null); setNameDraft('')
   }
 
   // ── Key derived values ──────────────────────────────────────────────────────
@@ -1473,17 +1896,6 @@ function BudgetSimulatorModal({
     ) as Partial<Record<Category, number>>
   }, [simIncome, simFixedTotal, goalAllocations, threeMonthCatAvg, simCategoryBudgets])
 
-  // Projection
-  const [yr, mo] = selectedMonth.split('-').map(Number)
-  const nowDate  = new Date()
-  const isCurrentMonth = yr === nowDate.getFullYear() && mo === nowDate.getMonth() + 1
-  const daysInMonth    = new Date(yr, mo, 0).getDate()
-  const daysElapsed    = isCurrentMonth ? nowDate.getDate() : daysInMonth
-  const daysRemaining  = daysInMonth - daysElapsed
-  const projectedTotal = thisMonthTotal + (avgPerDay * daysRemaining)
-  const projectedSavings    = simIncome - projectedTotal
-  const projectedSavingsRate = simIncome > 0 ? (projectedSavings / simIncome) * 100 : 0
-
   // Goal simulator
   const totalGoalAllocations    = Object.values(goalAllocations).reduce((s, v) => s + v, 0)
   const goalAllocExceedsSurplus = totalGoalAllocations > simSurplus && simSurplus > 0
@@ -1517,7 +1929,7 @@ function BudgetSimulatorModal({
     setSimCategoryBudgets({ ...map[s] }); setActiveScenario(s); setTab('plan')
   }
   const updateCatBudget = (cat: Category, val: string) => {
-    const n = parseFloat(val.replace(/[^0-9.]/g, '')) || 0
+    const n = parseRp(val)
     setSimCategoryBudgets(prev => ({ ...prev, [cat]: n }))
     setActiveScenario('custom')
   }
@@ -1548,9 +1960,9 @@ function BudgetSimulatorModal({
         </div>
         <p className="text-[10px] text-gray-400 leading-relaxed">{desc}</p>
         <div className="space-y-1 text-xs">
-          <div className="flex justify-between text-gray-500"><span>Variable</span><span className="font-medium">{fmtShort(varTotal)}</span></div>
+          <div className="flex justify-between text-gray-500"><span>Variable</span><span className="font-medium">{fmt(varTotal)}</span></div>
           <div className="flex justify-between text-gray-500"><span>Surplus</span>
-            <span className={`font-medium ${surplus >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmtShort(Math.abs(surplus))}{surplus < 0 ? ' deficit' : ''}</span>
+            <span className={`font-medium ${surplus >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmt(Math.abs(surplus))}{surplus < 0 ? ' deficit' : ''}</span>
           </div>
           <div className="flex justify-between text-gray-500"><span>Savings rate</span>
             <span className={`font-medium ${savRate >= 20 ? 'text-emerald-600' : savRate >= 10 ? 'text-amber-600' : 'text-red-500'}`}>{savRate.toFixed(0)}%</span>
@@ -1594,12 +2006,55 @@ function BudgetSimulatorModal({
           </div>
         </div>
 
+        {/* Profile bar */}
+        <div className="flex items-center gap-2 px-5 mt-3 shrink-0">
+          {namingMode ? (
+            <div className="flex items-center gap-1.5 flex-1">
+              <input autoFocus value={nameDraft} onChange={e => setNameDraft(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') submitName(); if (e.key === 'Escape') { setNamingMode(null); setNameDraft('') } }}
+                placeholder={namingMode === 'new' ? 'New profile name…' : 'Rename profile…'}
+                className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-black focus:outline-none focus:border-black transition" />
+              <button onClick={submitName} className="flex items-center justify-center bg-black text-white w-8 h-8 rounded-lg hover:bg-gray-800 transition-all"><Check size={13} /></button>
+              <button onClick={() => { setNamingMode(null); setNameDraft('') }} className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all"><X size={14} /></button>
+            </div>
+          ) : (<>
+            <div className="relative flex-1">
+              <button onClick={() => setProfileMenuOpen(v => !v)}
+                className="w-full flex items-center justify-between gap-2 border border-gray-200 rounded-lg px-3 py-1.5 text-xs text-black hover:border-black transition-all">
+                <span className="flex items-center gap-1.5 truncate"><Calculator size={12} className="text-gray-400 shrink-0" />{activeProfile ? activeProfile.name : 'Unsaved plan'}</span>
+                <ChevronDown size={12} className={`text-gray-300 transition-transform shrink-0 ${profileMenuOpen ? 'rotate-180' : ''}`} />
+              </button>
+              {profileMenuOpen && (<>
+                <div className="fixed inset-0 z-40" onClick={() => setProfileMenuOpen(false)} />
+                <div className="absolute left-0 right-0 mt-1 bg-white border border-gray-100 rounded-xl shadow-xl py-1 z-50 max-h-60 overflow-y-auto">
+                  {profiles.length === 0 && <p className="px-3 py-2 text-xs text-gray-300">No saved profiles yet — Save plan to create one</p>}
+                  {profiles.map(p => (
+                    <button key={p.id} onClick={() => handleSelectProfile(p.id)}
+                      className={`w-full flex items-center justify-between gap-2 px-3 py-2 text-xs transition-colors hover:bg-gray-50 ${p.id === activeProfileId ? 'text-black font-medium' : 'text-gray-600'}`}>
+                      <span className="truncate">{p.name}</span>
+                      {p.id === activeProfileId && <Check size={12} className="text-black shrink-0" />}
+                    </button>
+                  ))}
+                </div>
+              </>)}
+            </div>
+            <button onClick={() => { setNamingMode('new'); setNameDraft('') }}
+              className="flex items-center gap-1 border border-gray-200 rounded-lg px-2.5 py-1.5 text-xs text-gray-500 hover:border-black hover:text-black transition-all shrink-0">
+              <Plus size={12} /> New
+            </button>
+            <RowMenu items={[
+              { label: 'Rename', icon: <Pencil size={13} />, onClick: () => { setNamingMode('rename'); setNameDraft(activeProfile?.name || '') }, disabled: !activeProfileId },
+              { label: 'Delete', icon: <Trash2 size={13} />, onClick: handleDeleteProfile, danger: true, disabled: !activeProfileId },
+            ]} />
+          </>)}
+        </div>
+
         {/* Tabs */}
         <div className="flex gap-1 mx-5 mt-3 bg-gray-100 p-1 rounded-lg shrink-0">
-          {(['plan', 'project', 'scenarios', 'goals'] as const).map(t => (
+          {(['plan', 'scenarios', 'goals'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)}
               className={`flex-1 py-1 rounded-md text-[11px] font-medium transition-all ${tab === t ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-black'}`}>
-              {t === 'plan' ? 'Planner' : t === 'project' ? 'Forecast' : t === 'scenarios' ? 'Compare' : 'Goals'}
+              {t === 'plan' ? 'Planner' : t === 'scenarios' ? 'Compare' : 'Goals'}
             </button>
           ))}
         </div>
@@ -1614,18 +2069,17 @@ function BudgetSimulatorModal({
               <label className="text-xs text-gray-400 mb-1 block">Monthly income (Rp)</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
-                <input type="text" inputMode="numeric" value={simIncome === 0 ? '' : String(simIncome)} placeholder="0"
-                  onChange={e => setSimIncome(parseFloat(e.target.value.replace(/[^0-9.]/g, '')) || 0)}
+                <input type="text" inputMode="numeric" value={groupId(simIncome)} placeholder="0"
+                  onChange={e => setSimIncome(parseRp(e.target.value))}
                   className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
               </div>
-              {simIncome > 0 && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(simIncome)}</p>}
             </div>
 
             {/* Fixed costs */}
             <div className="bg-gray-50 rounded-xl px-3 py-2.5">
               <div className="flex justify-between items-center mb-2">
                 <p className="text-xs font-medium text-gray-500">Fixed costs <span className="text-gray-300 font-normal">(from recurring bills)</span></p>
-                <p className="text-xs font-semibold text-gray-800">{fmtShort(simFixedTotal)}</p>
+                <p className="text-xs font-semibold text-gray-800">{fmt(simFixedTotal)}</p>
               </div>
               {recurring.length === 0
                 ? <p className="text-xs text-gray-300">No recurring bills set up yet</p>
@@ -1638,7 +2092,7 @@ function BudgetSimulatorModal({
                           <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${CATEGORY_CONFIG[r.category].bg} ${CATEGORY_CONFIG[r.category].text}`}>{FREQ_LABELS[r.frequency]}</span>
                           <span className="text-xs text-gray-600 truncate max-w-[160px]">{r.title}</span>
                         </div>
-                        <span className="text-xs text-gray-500 shrink-0">{fmtShort(Math.round(monthly))}/mo</span>
+                        <span className="text-xs text-gray-500 shrink-0">{fmt(Math.round(monthly))}/mo</span>
                       </div>
                     )
                   })}
@@ -1671,7 +2125,7 @@ function BudgetSimulatorModal({
                         <span className="text-xs text-gray-600 flex-1">{cfg.label}</span>
                         <div className="relative w-32 shrink-0">
                           <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 select-none">Rp</span>
-                          <input type="text" inputMode="numeric" value={budget === 0 ? '' : String(budget)} placeholder="0"
+                          <input type="text" inputMode="numeric" value={groupId(budget)} placeholder="0"
                             onChange={e => updateCatBudget(cat, e.target.value)}
                             className="w-full border border-gray-200 rounded-lg pl-6 pr-2 py-1.5 text-xs text-black focus:outline-none focus:border-black transition text-right" />
                         </div>
@@ -1681,7 +2135,7 @@ function BudgetSimulatorModal({
                           <div className="h-full bg-black rounded-full transition-all duration-300" style={{ width: `${barPct}%` }} />
                         </div>
                         <span className="text-[10px] text-gray-300 shrink-0">
-                          {actual > 0 && `spent ${fmtShort(actual)}`}{avgVal > 0 && actual === 0 && `avg ${fmtShort(avgVal)}`}
+                          {actual > 0 && `spent ${fmt(actual)}`}{avgVal > 0 && actual === 0 && `avg ${fmt(avgVal)}`}
                         </span>
                       </div>
                     </div>
@@ -1693,9 +2147,9 @@ function BudgetSimulatorModal({
             {/* Waterfall summary */}
             <div className="border border-gray-100 rounded-xl px-4 py-3 space-y-2">
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-1">Monthly breakdown</p>
-              <div className="flex justify-between text-sm"><span className="text-gray-600">Income</span><span className="font-semibold text-black">{fmtShort(simIncome)}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-gray-400">− Fixed costs</span><span className="text-gray-500">−{fmtShort(Math.round(simFixedTotal))}</span></div>
-              <div className="flex justify-between text-sm"><span className="text-gray-400">− Variable budgets</span><span className="text-gray-500">−{fmtShort(simVariableTotal)}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-gray-600">Income</span><span className="font-semibold text-black">{fmt(simIncome)}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-gray-400">− Fixed costs</span><span className="text-gray-500">−{fmt(Math.round(simFixedTotal))}</span></div>
+              <div className="flex justify-between text-sm"><span className="text-gray-400">− Variable budgets</span><span className="text-gray-500">−{fmt(simVariableTotal)}</span></div>
               <div className="h-px bg-gray-100" />
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium text-gray-700">= Surplus / Savings</span>
@@ -1704,109 +2158,20 @@ function BudgetSimulatorModal({
                     {simSavingsRate.toFixed(0)}% saved
                   </span>
                   <span className={`text-sm font-bold ${simSurplus >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                    {simSurplus >= 0 ? '+' : ''}{fmtShort(Math.round(simSurplus))}
+                    {simSurplus >= 0 ? '+' : ''}{fmt(Math.round(simSurplus))}
                   </span>
                 </div>
               </div>
               {simSurplus < 0 && (
                 <div className="flex items-center gap-1.5 bg-red-50 rounded-lg px-2.5 py-2">
                   <AlertTriangle size={12} className="text-red-500 shrink-0" />
-                  <p className="text-xs text-red-600">Budget exceeds income by {fmtShort(Math.abs(simSurplus))}</p>
+                  <p className="text-xs text-red-600">Budget exceeds income by {fmt(Math.abs(simSurplus))}</p>
                 </div>
               )}
             </div>
           </>)}
 
-          {/* ── TAB 2: FORECAST ── */}
-          {tab === 'project' && (<>
-            {/* Days progress */}
-            <div>
-              <div className="flex justify-between text-xs text-gray-400 mb-1.5">
-                <span>Month progress</span>
-                <span>{daysElapsed} / {daysInMonth} days elapsed · {daysRemaining} days left</span>
-              </div>
-              <div className="bg-gray-100 rounded-full h-2 overflow-hidden">
-                <div className="h-full bg-black rounded-full transition-all duration-700" style={{ width: `${(daysElapsed / daysInMonth) * 100}%` }} />
-              </div>
-            </div>
-
-            {/* Stat cards */}
-            <div className="grid grid-cols-2 gap-2">
-              <div className={`rounded-xl px-3 py-2.5 ${projectedTotal > simIncome ? 'bg-red-50' : 'bg-gray-50'}`}>
-                <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Projected spend</p>
-                <p className={`text-sm font-bold ${projectedTotal > simIncome ? 'text-red-600' : 'text-black'}`}>{fmtShort(Math.round(projectedTotal))}</p>
-                <p className="text-[10px] text-gray-400">end of month</p>
-              </div>
-              <div className={`rounded-xl px-3 py-2.5 ${projectedSavings < 0 ? 'bg-red-50' : 'bg-emerald-50'}`}>
-                <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Projected savings</p>
-                <p className={`text-sm font-bold ${projectedSavings < 0 ? 'text-red-600' : 'text-emerald-600'}`}>{projectedSavings < 0 ? '-' : '+'}{fmtShort(Math.abs(Math.round(projectedSavings)))}</p>
-                <p className="text-[10px] text-gray-400">{projectedSavingsRate.toFixed(0)}% of income</p>
-              </div>
-              <div className="bg-gray-50 rounded-xl px-3 py-2.5">
-                <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Avg / day</p>
-                <p className="text-sm font-bold text-black">{fmtShort(Math.round(avgPerDay))}</p>
-                <p className="text-[10px] text-gray-400">based on this month</p>
-              </div>
-              <div className="bg-gray-50 rounded-xl px-3 py-2.5">
-                <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Spent so far</p>
-                <p className="text-sm font-bold text-black">{fmtShort(Math.round(thisMonthTotal))}</p>
-                <p className="text-[10px] text-gray-400">of {fmtShort(simIncome)} income</p>
-              </div>
-            </div>
-
-            {/* Projected vs income bar */}
-            <div>
-              <div className="flex justify-between text-xs text-gray-400 mb-1.5">
-                <span>Projected spend vs income</span>
-                <span className={projectedTotal > simIncome ? 'text-red-500' : 'text-emerald-600'}>
-                  {projectedTotal > simIncome ? `${fmtShort(Math.round(projectedTotal - simIncome))} over` : `${fmtShort(Math.round(simIncome - projectedTotal))} under`}
-                </span>
-              </div>
-              <div className="bg-gray-100 rounded-full h-3 overflow-hidden">
-                <div className={`h-full rounded-full transition-all duration-700 ${projectedTotal > simIncome ? 'bg-red-500' : projectedTotal > simIncome * 0.8 ? 'bg-amber-500' : 'bg-black'}`}
-                  style={{ width: `${Math.min((projectedTotal / Math.max(simIncome, 1)) * 100, 100)}%` }} />
-              </div>
-            </div>
-
-            {/* Per-category actual vs budget */}
-            <div>
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Category forecast</p>
-              <div className="flex flex-col gap-3">
-                {(Object.keys(CATEGORY_CONFIG) as Category[]).map(cat => {
-                  const actual  = categoryTotals[cat] || 0
-                  const budget  = simCategoryBudgets[cat] || 0
-                  if (actual === 0 && budget === 0) return null
-                  const pctActual = budget > 0 ? Math.min((actual / budget) * 100, 100) : 0
-                  const over = budget > 0 && actual > budget
-                  const warn = !over && budget > 0 && pctActual >= 80
-                  const chipClass = over ? 'bg-red-50 text-red-600' : warn ? 'bg-amber-50 text-amber-600' : budget === 0 ? 'bg-gray-100 text-gray-400' : 'bg-emerald-50 text-emerald-700'
-                  const chipLabel = over ? 'Over' : warn ? 'Watch' : budget === 0 ? 'No budget' : 'On track'
-                  const cfg = CATEGORY_CONFIG[cat]
-                  return (
-                    <div key={cat}>
-                      <div className="flex items-center justify-between mb-1">
-                        <div className="flex items-center gap-1.5">
-                          <span className={cfg.text}>{cfg.icon}</span>
-                          <span className="text-xs text-gray-600">{cfg.label}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-xs text-gray-400">{fmtShort(actual)}{budget > 0 && ` / ${fmtShort(budget)}`}</span>
-                          <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${chipClass}`}>{chipLabel}</span>
-                        </div>
-                      </div>
-                      {budget > 0 && (
-                        <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                          <div className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-red-500' : warn ? 'bg-amber-500' : 'bg-black'}`} style={{ width: `${pctActual}%` }} />
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          </>)}
-
-          {/* ── TAB 3: SCENARIOS ── */}
+          {/* ── TAB 2: SCENARIOS ── */}
           {tab === 'scenarios' && (<>
             <p className="text-xs text-gray-400">Compare budget scenarios — apply one to load it into the Planner.</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -1827,9 +2192,9 @@ function BudgetSimulatorModal({
               <p className="text-xs text-gray-500 mb-1">Your current custom plan</p>
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-black">{fmtShort(simVariableTotal)} variable</p>
+                  <p className="text-sm font-semibold text-black">{fmt(simVariableTotal)} variable</p>
                   <p className={`text-xs ${simSurplus >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                    {simSurplus >= 0 ? '+' : ''}{fmtShort(Math.abs(Math.round(simSurplus)))} surplus · {simSavingsRate.toFixed(0)}% saved
+                    {simSurplus >= 0 ? '+' : ''}{fmt(Math.abs(Math.round(simSurplus)))} surplus · {simSavingsRate.toFixed(0)}% saved
                   </p>
                 </div>
                 {activeScenario !== 'custom' && (
@@ -1853,7 +2218,7 @@ function BudgetSimulatorModal({
               {goalAllocExceedsSurplus && (
                 <div className="flex items-center gap-2 bg-red-50 rounded-xl px-3 py-2.5">
                   <AlertTriangle size={13} className="text-red-500 shrink-0" />
-                  <p className="text-xs text-red-600">Total allocations exceed your projected surplus of {fmtShort(Math.max(simSurplus, 0))}</p>
+                  <p className="text-xs text-red-600">Total allocations exceed your projected surplus of {fmt(Math.max(simSurplus, 0))}</p>
                 </div>
               )}
               <div className="flex flex-col gap-3">
@@ -1875,7 +2240,7 @@ function BudgetSimulatorModal({
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-gray-900 truncate">{goal.title}</p>
-                          <p className="text-xs text-gray-400">{fmtShort(goal.current_amount)} / {fmtShort(goal.target_amount)}</p>
+                          <p className="text-xs text-gray-400">{fmt(goal.current_amount)} / {fmt(goal.target_amount)}</p>
                         </div>
                         <div className="text-right shrink-0">
                           {done ? <span className="text-xs text-emerald-500 font-medium">Reached!</span>
@@ -1890,7 +2255,7 @@ function BudgetSimulatorModal({
                       {!done && (<>
                         <div className="flex items-center justify-between text-xs text-gray-400">
                           <span>Monthly allocation</span>
-                          <span className="font-medium text-black">{fmtShort(alloc)}</span>
+                          <span className="font-medium text-black">{fmt(alloc)}</span>
                         </div>
                         <input type="range" min={0} max={sliderMax || 1000000} step={10000} value={alloc}
                           onChange={e => setGoalAllocations(prev => ({ ...prev, [goal.id]: parseInt(e.target.value) }))}
@@ -1905,8 +2270,8 @@ function BudgetSimulatorModal({
               <div className="bg-gray-50 rounded-xl px-3 py-2.5 flex justify-between items-center">
                 <span className="text-xs text-gray-500">Total monthly allocations</span>
                 <div className="text-right">
-                  <span className={`text-sm font-bold ${goalAllocExceedsSurplus ? 'text-red-600' : 'text-black'}`}>{fmtShort(totalGoalAllocations)}</span>
-                  <p className="text-[10px] text-gray-400">of {fmtShort(Math.max(simSurplus, 0))} surplus</p>
+                  <span className={`text-sm font-bold ${goalAllocExceedsSurplus ? 'text-red-600' : 'text-black'}`}>{fmt(totalGoalAllocations)}</span>
+                  <p className="text-[10px] text-gray-400">of {fmt(Math.max(simSurplus, 0))} surplus</p>
                 </div>
               </div>
             </>)}
@@ -1959,6 +2324,10 @@ export default function Dashboard() {
   const [showAddPool, setShowAddPool]         = useState(false)
   const [loggingPool, setLoggingPool]         = useState<ExpensePool | null>(null)
   const [openPool, setOpenPool]               = useState<ExpensePool | null>(null)
+  const [splitBills, setSplitBills]           = useState<SplitBill[]>([])
+  const [billParticipants, setBillParticipants] = useState<SplitBillParticipant[]>([])
+  const [showAddSplitBill, setShowAddSplitBill] = useState(false)
+  const [openSplitBill, setOpenSplitBill]     = useState<SplitBill | null>(null)
   const [showSimulator, setShowSimulator]     = useState(false)
   const [menuOpen, setMenuOpen]               = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -1980,7 +2349,7 @@ export default function Dashboard() {
     setUserEmail(user.email ?? '')
     const rawName = user.user_metadata?.full_name ?? user.email?.split('@')[0] ?? ''
     setFullName(rawName.split(' ')[0])
-    await Promise.all([fetchExpenses(user.id), fetchIncome(user.id), fetchBudgets(user.id), fetchGoals(user.id), fetchRecurring(user.id), fetchPools(user.id)])
+    await Promise.all([fetchExpenses(user.id), fetchIncome(user.id), fetchBudgets(user.id), fetchGoals(user.id), fetchRecurring(user.id), fetchPools(user.id), fetchSplitBills(user.id)])
     setLoading(false)
   }
 
@@ -2017,6 +2386,14 @@ export default function Dashboard() {
     if (pools && pools.length > 0) {
       const { data: entries } = await supabase.from('expense_pool_entries').select('*').eq('user_id', uid).order('created_at', { ascending: false })
       setPoolEntries(entries || [])
+    }
+  }
+  const fetchSplitBills = async (uid: string) => {
+    const { data: bills } = await supabase.from('split_bills').select('*').eq('user_id', uid).eq('is_archived', false).order('created_at', { ascending: false })
+    setSplitBills(bills || [])
+    if (bills && bills.length > 0) {
+      const { data: parts } = await supabase.from('split_bill_participants').select('*').eq('user_id', uid).order('created_at', { ascending: true })
+      setBillParticipants(parts || [])
     }
   }
 
@@ -2210,6 +2587,49 @@ export default function Dashboard() {
     setOpenPool(prev => prev?.id === poolId ? null : prev)
   }
 
+  // ── Split bills ────────────────────────────────────────────────────────────
+  const handleAddSplitBill = async (
+    data: { title: string; total_amount: number; category: Category; note: string },
+    participants: { name: string; share_amount: number }[]
+  ) => {
+    const { data: ud } = await supabase.auth.getUser(); const user = ud.user; if (!user) return
+    const { data: bill, error } = await supabase.from('split_bills')
+      .insert({ ...data, user_id: user.id, is_archived: false }).select().single()
+    if (error || !bill) return
+    const rows = participants.map(p => ({ bill_id: bill.id, user_id: user.id, name: p.name, share_amount: p.share_amount, is_paid: false }))
+    const { data: inserted } = await supabase.from('split_bill_participants').insert(rows).select()
+    setSplitBills(prev => [bill, ...prev])
+    if (inserted) setBillParticipants(prev => [...prev, ...inserted])
+    setShowAddSplitBill(false)
+  }
+  const handleToggleParticipantPaid = async (p: SplitBillParticipant) => {
+    const next = !p.is_paid
+    const { error } = await supabase.from('split_bill_participants').update({ is_paid: next }).eq('id', p.id)
+    if (!error) setBillParticipants(prev => prev.map(x => x.id === p.id ? { ...x, is_paid: next } : x))
+  }
+  const handleAddParticipant = async (billId: string, name: string, share: number) => {
+    const { data: ud } = await supabase.auth.getUser(); const user = ud.user; if (!user) return
+    const { data: inserted, error } = await supabase.from('split_bill_participants')
+      .insert({ bill_id: billId, user_id: user.id, name, share_amount: share, is_paid: false }).select().single()
+    if (!error && inserted) setBillParticipants(prev => [...prev, inserted])
+  }
+  const handleDeleteParticipant = async (p: SplitBillParticipant) => {
+    await supabase.from('split_bill_participants').delete().eq('id', p.id)
+    setBillParticipants(prev => prev.filter(x => x.id !== p.id))
+  }
+  const handleEditSplitBill = async (billId: string, updated: Partial<Pick<SplitBill, 'title' | 'total_amount' | 'category' | 'note'>>) => {
+    const { error } = await supabase.from('split_bills').update(updated).eq('id', billId)
+    if (!error) {
+      setSplitBills(prev => prev.map(b => b.id === billId ? { ...b, ...updated } : b))
+      setOpenSplitBill(prev => prev?.id === billId ? { ...prev, ...updated } : prev)
+    }
+  }
+  const handleDeleteSplitBill = async (billId: string) => {
+    await supabase.from('split_bills').update({ is_archived: true }).eq('id', billId)
+    setSplitBills(prev => prev.filter(b => b.id !== billId))
+    setOpenSplitBill(prev => prev?.id === billId ? null : prev)
+  }
+
   // ── Derived ──────────────────────────────────────────────────────────────────
   const thisMonthExpenses = useMemo(() => expenses.filter(e => inMonth(e.created_at, selectedMonth)), [expenses, selectedMonth])
   const poolsThisMonth = useMemo<ExpensePoolWithStats[]>(() =>
@@ -2219,6 +2639,15 @@ export default function Dashboard() {
       const remaining = pool.budget_amount - spent
       return { pool, entries, spent, remaining, pct: Math.min(pool.budget_amount > 0 ? (spent / pool.budget_amount) * 100 : 0, 100) }
     }), [expensePools, poolEntries, selectedMonth])
+  const billsWithStats = useMemo<SplitBillWithStats[]>(() =>
+    splitBills.map(bill => {
+      const participants = billParticipants.filter(p => p.bill_id === bill.id)
+      const owed      = participants.filter(p => !p.is_paid).reduce((s, p) => s + p.share_amount, 0)
+      const collected = participants.filter(p => p.is_paid).reduce((s, p) => s + p.share_amount, 0)
+      const paidCount = participants.filter(p => p.is_paid).length
+      const settled   = participants.length > 0 && paidCount === participants.length
+      return { bill, participants, owed, collected, paidCount, settled }
+    }), [splitBills, billParticipants])
   const lastMonthExpenses = useMemo(() => {
     const now = new Date(selectedMonth + '-02'); now.setMonth(now.getMonth() - 1)
     const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -2722,6 +3151,72 @@ export default function Dashboard() {
             )}
           </CollapsibleSection>
 
+          {/* ── Split Bills ── */}
+          <CollapsibleSection
+            title="Split bills" icon={<Users size={13} />}
+            defaultOpen={splitBills.length > 0}
+            badge={splitBills.length} badgeColor="bg-red-500"
+            headerRight={
+              <button onClick={e => { e.stopPropagation(); setShowAddSplitBill(true) }}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-black transition-colors">
+                <Plus size={12} /> Add
+              </button>
+            }
+          >
+            {splitBills.length === 0 ? (
+              <div className="text-center py-6">
+                <Users size={28} className="mx-auto mb-2 text-gray-200" />
+                <p className="text-xs text-gray-400 font-medium mb-0.5">No split bills yet</p>
+                <p className="text-xs text-gray-300 mb-3">Split a bill and track who owes you</p>
+                <button onClick={() => setShowAddSplitBill(true)}
+                  className="inline-flex items-center gap-1.5 bg-black text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-all">
+                  <Plus size={12} /> Create first split
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {billsWithStats.map(({ bill, participants, owed, collected, paidCount, settled }) => {
+                  const cfg = CATEGORY_CONFIG[bill.category]
+                  const pct = bill.total_amount > 0 ? Math.min((collected / bill.total_amount) * 100, 100) : 0
+                  return (
+                    <div key={bill.id} onClick={() => setOpenSplitBill(bill)}
+                      className="border border-gray-100 rounded-xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className={`w-6 h-6 ${cfg.bg} rounded-lg flex items-center justify-center shrink-0`}>
+                            <span className={cfg.text}>{cfg.icon}</span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-gray-900 truncate">{bill.title}</p>
+                            <p className="text-xs text-gray-400">{fmt(bill.total_amount)} · {participants.length} {participants.length === 1 ? 'person' : 'people'}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {settled
+                            ? <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-medium">Settled</span>
+                            : <span className="text-[10px] text-gray-400">{paidCount}/{participants.length} paid</span>}
+                          <RowMenu items={[
+                            { label: 'Details', icon: <Users size={13} />, onClick: () => setOpenSplitBill(bill) },
+                            { label: 'Delete', icon: <Trash2 size={13} />, onClick: () => handleDeleteSplitBill(bill.id), danger: true },
+                          ]} />
+                        </div>
+                      </div>
+                      <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden mb-1.5">
+                        <div className={`h-full rounded-full transition-all duration-700 ${settled ? 'bg-emerald-500' : 'bg-black'}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="text-gray-500">{fmt(collected)} collected</span>
+                        {settled
+                          ? <span className="text-emerald-500 font-medium">All settled up</span>
+                          : <span className="text-gray-400">{fmt(owed)} owed to you</span>}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </CollapsibleSection>
+
           {/* ── Savings Goals ── */}
           <CollapsibleSection
             title="Savings goals" icon={<Flag size={13} />} defaultOpen={false}
@@ -3073,13 +3568,15 @@ export default function Dashboard() {
       {showAddBill    && <AddBillModal    onClose={() => setShowAddBill(false)}    onSave={handleAddBill} />}
       {editingBill    && <EditBillModal   item={editingBill} onClose={() => setEditingBill(null)} onSave={handleSaveEditBill} />}
       {showSimulator  && <BudgetSimulatorModal
-          thisMonthIncomeTot={thisMonthIncomeTot} thisMonthTotal={thisMonthTotal} avgPerDay={avgPerDay}
+          thisMonthIncomeTot={thisMonthIncomeTot}
           categoryTotals={categoryTotals} last6Months={last6Months} expenses={expenses}
           recurring={recurring} budgets={budgets} savingsGoals={savingsGoals}
           selectedMonth={selectedMonth} onClose={() => setShowSimulator(false)} />}
       {showAddPool    && <AddPoolModal    onClose={() => setShowAddPool(false)}   onSave={handleAddPool} />}
       {loggingPool    && (() => { const stats = poolsThisMonth.find(s => s.pool.id === loggingPool.id); return stats ? <LogPoolEntryModal pool={loggingPool} remaining={stats.remaining} onClose={() => setLoggingPool(null)} onSave={(amt, note) => handleLogPoolEntry(loggingPool, amt, note)} /> : null })()}
       {openPool       && (() => { const stats = poolsThisMonth.find(s => s.pool.id === openPool.id); return stats ? <PoolDetailModal stats={stats} selectedMonth={selectedMonth} onClose={() => setOpenPool(null)} onLogEntry={() => {}} onDeleteEntry={handleDeletePoolEntry} onEditPool={(u) => handleEditPool(openPool.id, u)} onArchivePool={() => handleArchivePool(openPool.id)} onOpenLog={() => { setLoggingPool(openPool); setOpenPool(null) }} /> : null })()}
+      {showAddSplitBill && <AddSplitBillModal onClose={() => setShowAddSplitBill(false)} onSave={handleAddSplitBill} />}
+      {openSplitBill  && (() => { const stats = billsWithStats.find(s => s.bill.id === openSplitBill.id); return stats ? <SplitBillDetailModal stats={stats} onClose={() => setOpenSplitBill(null)} onTogglePaid={handleToggleParticipantPaid} onAddParticipant={(name, share) => handleAddParticipant(openSplitBill.id, name, share)} onDeleteParticipant={handleDeleteParticipant} onEditBill={(u) => handleEditSplitBill(openSplitBill.id, u)} onDeleteBill={() => handleDeleteSplitBill(openSplitBill.id)} /> : null })()}
     </>
   )
 }
