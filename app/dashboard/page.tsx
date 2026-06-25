@@ -74,6 +74,18 @@ interface SplitBillWithStats {
   bill: SplitBill; participants: SplitBillParticipant[]
   owed: number; collected: number; paidCount: number; settled: boolean
 }
+interface Debt {
+  id: string; user_id: string; person_name: string; amount: number
+  note?: string; due_date?: string; is_archived: boolean; created_at: string
+}
+interface DebtPayment {
+  id: string; debt_id: string; user_id: string; amount: number
+  note?: string; created_at: string
+}
+interface DebtWithStats {
+  debt: Debt; payments: DebtPayment[]
+  paid: number; remaining: number; pct: number; settled: boolean; overdue: boolean
+}
 
 const CATEGORY_CONFIG: Record<Category, { label: string; icon: React.ReactNode; bg: string; text: string }> = {
   food:          { label: 'Food & dining',  icon: <UtensilsCrossed size={14} />, bg: 'bg-green-50',   text: 'text-green-800'  },
@@ -1706,6 +1718,291 @@ function SplitBillDetailModal({ stats, onClose, onTogglePaid, onAddParticipant, 
   )
 }
 
+// ─── Add Debt Modal ───────────────────────────────────────────────────────────
+function AddDebtModal({ onClose, onSave }: {
+  onClose: () => void
+  onSave: (data: { person_name: string; amount: number; note: string; due_date: string }) => Promise<void>
+}) {
+  const [personName, setPersonName] = useState('')
+  const [amount, setAmount]         = useState('')
+  const [note, setNote]             = useState('')
+  const [dueDate, setDueDate]       = useState('')
+  const [saving, setSaving]         = useState(false)
+
+  const handleSave = async () => {
+    if (!personName.trim() || !amount || parseFloat(amount) <= 0) return
+    setSaving(true)
+    await onSave({ person_name: personName.trim(), amount: parseFloat(amount), note: note.trim(), due_date: dueDate })
+    setSaving(false)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0">
+      <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-xl max-h-[90vh] overflow-y-auto animate-slide-up">
+        <div className="flex justify-between items-center mb-5">
+          <div><h2 className="text-base font-medium text-black">New debt</h2><p className="text-xs text-gray-400 mt-0.5">Track money someone owes you</p></div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all"><X size={16} /></button>
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Who owes you?</label>
+            <input value={personName} onChange={e => setPersonName(e.target.value)} placeholder="e.g. Andi" autoFocus
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Amount (Rp)</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
+              <input type="text" inputMode="numeric" value={amount} onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0"
+                className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
+            </div>
+            {amount && !isNaN(parseFloat(amount)) && parseFloat(amount) > 0 && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(parseFloat(amount))}</p>}
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Due date <span className="text-gray-300">(optional)</span></label>
+            <input type="date" value={dueDate} onChange={e => setDueDate(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Note <span className="text-gray-300">(optional)</span></label>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Lent for groceries..."
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+          </div>
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} className="flex-1 border border-gray-200 rounded-lg py-2.5 text-sm text-gray-600 hover:bg-gray-50 transition">Cancel</button>
+          <button onClick={handleSave} disabled={saving || !personName.trim() || !amount || parseFloat(amount) <= 0}
+            className="flex-1 bg-black text-white rounded-lg py-2.5 text-sm font-medium hover:bg-gray-800 active:scale-[.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Plus size={14} /> Add debt</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Log Debt Payment Modal ───────────────────────────────────────────────────
+function LogDebtPaymentModal({ debt, remaining, onClose, onSave }: {
+  debt: Debt; remaining: number; onClose: () => void
+  onSave: (amount: number, note: string) => Promise<void>
+}) {
+  const [amount, setAmount] = useState('')
+  const [note, setNote]     = useState('')
+  const [saving, setSaving] = useState(false)
+
+  const handleSave = async () => {
+    if (!amount || parseFloat(amount) <= 0) return
+    setSaving(true); await onSave(parseFloat(amount), note.trim()); setSaving(false)
+  }
+
+  const afterRemaining = remaining - (parseFloat(amount) || 0)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0">
+      <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-xl animate-slide-up">
+        <div className="flex justify-between items-center mb-1">
+          <div>
+            <h2 className="text-base font-medium text-black">Log payment</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{debt.person_name}</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all"><X size={16} /></button>
+        </div>
+        <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-gray-50 text-gray-600 text-xs font-medium mb-4">
+          <CreditCard size={13} /> {fmtShort(remaining)} remaining
+        </div>
+        <div className="space-y-3">
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Amount (Rp)</label>
+            <div className="relative">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
+              <input type="text" inputMode="numeric" value={amount} onChange={e => setAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0" autoFocus
+                className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
+            </div>
+            {amount && !isNaN(parseFloat(amount)) && parseFloat(amount) > 0 && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(parseFloat(amount))}</p>}
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Note <span className="text-gray-300">(optional)</span></label>
+            <input value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Paid via transfer..."
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+          </div>
+          {amount && parseFloat(amount) > 0 && (
+            <div className="bg-gray-50 rounded-lg px-3 py-2">
+              <p className="text-xs text-gray-500">After this payment: <span className={`font-medium ${afterRemaining <= 0 ? 'text-emerald-600' : 'text-black'}`}>{afterRemaining <= 0 ? 'Settled' : `${fmtShort(afterRemaining)} remaining`}</span></p>
+            </div>
+          )}
+        </div>
+        <div className="flex gap-2 mt-5">
+          <button onClick={onClose} className="flex-1 border border-gray-200 rounded-lg py-2.5 text-sm text-gray-600 hover:bg-gray-50 transition">Cancel</button>
+          <button onClick={handleSave} disabled={saving || !amount || parseFloat(amount) <= 0}
+            className="flex-1 bg-black text-white rounded-lg py-2.5 text-sm font-medium hover:bg-gray-800 active:scale-[.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+            {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Check size={14} /> Log payment</>}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Debt Detail Modal ────────────────────────────────────────────────────────
+function DebtDetailModal({ stats, onClose, onOpenLog, onDeletePayment, onEditDebt, onArchiveDebt }: {
+  stats: DebtWithStats; onClose: () => void
+  onOpenLog: () => void
+  onDeletePayment: (payment: DebtPayment) => Promise<void>
+  onEditDebt: (updated: Partial<Pick<Debt, 'person_name' | 'amount' | 'note' | 'due_date'>>) => Promise<void>
+  onArchiveDebt: () => Promise<void>
+}) {
+  const { debt, payments, paid, remaining, pct, settled, overdue } = stats
+  const [tab, setTab]               = useState<'overview' | 'history' | 'edit'>('overview')
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editName, setEditName]     = useState(debt.person_name)
+  const [editAmount, setEditAmount] = useState(String(debt.amount))
+  const [editNote, setEditNote]     = useState(debt.note ?? '')
+  const [editDueDate, setEditDueDate] = useState(debt.due_date ?? '')
+  const [editSaving, setEditSaving] = useState(false)
+  const [archiving, setArchiving]   = useState(false)
+
+  const handleDeletePayment = async (payment: DebtPayment) => {
+    setDeletingId(payment.id); await onDeletePayment(payment); setDeletingId(null)
+  }
+  const handleEdit = async () => {
+    if (!editName.trim() || !editAmount || parseFloat(editAmount) <= 0) return
+    setEditSaving(true)
+    await onEditDebt({ person_name: editName.trim(), amount: parseFloat(editAmount), note: editNote.trim(), due_date: editDueDate || undefined })
+    setEditSaving(false)
+  }
+  const handleArchive = async () => { setArchiving(true); await onArchiveDebt(); setArchiving(false) }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0">
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl max-h-[88vh] flex flex-col animate-slide-up">
+        <div className="flex items-start justify-between p-5 pb-3 border-b border-gray-100">
+          <div className="flex-1 min-w-0 mr-3">
+            <p className="text-base font-medium text-black truncate">{debt.person_name}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{fmtShort(paid)} of {fmtShort(debt.amount)} paid back</p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all shrink-0"><X size={16} /></button>
+        </div>
+        <div className="px-5 pt-3 pb-0">
+          <div className="bg-gray-100 rounded-full h-2.5 overflow-hidden mb-1">
+            <div className={`h-full rounded-full transition-all duration-700 ${settled ? 'bg-emerald-500' : 'bg-black'}`} style={{ width: `${pct}%` }} />
+          </div>
+          <div className="flex justify-between">
+            <span className="text-xs text-gray-400">{pct.toFixed(0)}% paid back</span>
+            {settled
+              ? <span className="text-xs text-emerald-600 font-medium">Settled</span>
+              : overdue
+              ? <span className="text-xs text-red-500 font-medium">{fmtShort(remaining)} remaining · overdue</span>
+              : <span className="text-xs text-gray-400">{fmtShort(remaining)} remaining</span>}
+          </div>
+        </div>
+        <div className="flex gap-1 mx-5 mt-3 bg-gray-100 p-1 rounded-lg">
+          {(['overview', 'history', 'edit'] as const).map(t => (
+            <button key={t} onClick={() => setTab(t)}
+              className={`flex-1 py-1 rounded-md text-xs font-medium transition-all ${tab === t ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-black'}`}>
+              {t === 'overview' ? 'Overview' : t === 'history' ? `History (${payments.length})` : 'Edit'}
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 pb-5 pt-3">
+          {tab === 'overview' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-2">
+                <div className="bg-gray-50 rounded-xl px-3 py-2.5">
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Total owed</p>
+                  <p className="text-sm font-semibold text-black">{fmtShort(debt.amount)}</p>
+                </div>
+                <div className={`rounded-xl px-3 py-2.5 ${overdue ? 'bg-red-50' : 'bg-gray-50'}`}>
+                  <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Remaining</p>
+                  <p className={`text-sm font-semibold ${overdue ? 'text-red-600' : 'text-black'}`}>{fmtShort(Math.max(remaining, 0))}</p>
+                </div>
+              </div>
+              {debt.due_date && (
+                <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium ${overdue ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-600'}`}>
+                  {overdue && <AlertTriangle size={12} />}
+                  Due {new Date(debt.due_date).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}
+                </div>
+              )}
+              {debt.note && <p className="text-xs text-gray-400 italic">{debt.note}</p>}
+              {!settled && (
+                <button onClick={onOpenLog}
+                  className="w-full bg-black text-white rounded-lg py-2.5 text-sm font-medium hover:bg-gray-800 active:scale-[.98] transition-all flex items-center justify-center gap-2">
+                  <Plus size={14} /> Log payment
+                </button>
+              )}
+            </div>
+          )}
+          {tab === 'history' && (
+            payments.length === 0 ? (
+              <div className="text-center py-8"><History size={24} className="mx-auto mb-2 text-gray-200" /><p className="text-xs text-gray-300">No payments logged yet</p>{!settled && <button onClick={onOpenLog} className="mt-3 inline-flex items-center gap-1 text-xs text-black font-medium hover:underline"><Plus size={11} /> Log first payment</button>}</div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                <div className="bg-gray-50 rounded-xl px-3 py-2.5 mb-1 flex justify-between items-center">
+                  <span className="text-xs text-gray-500">{payments.length} payment{payments.length !== 1 ? 's' : ''}</span>
+                  <span className="text-xs font-medium text-black">{fmtShort(paid)} total</span>
+                </div>
+                {payments.map(payment => (
+                  <div key={payment.id} className="flex items-center gap-3 border border-gray-100 rounded-xl px-3 py-2.5 group hover:bg-gray-50 transition-all">
+                    <div className="w-7 h-7 bg-emerald-50 rounded-lg flex items-center justify-center shrink-0">
+                      <span className="text-emerald-700"><Check size={14} /></span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-emerald-700">+{fmtShort(payment.amount)}</p>
+                      {payment.note && <p className="text-xs text-gray-400 truncate">{payment.note}</p>}
+                      <p className="text-xs text-gray-300">{new Date(payment.created_at).toLocaleDateString('en-US', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                    </div>
+                    <button onClick={() => handleDeletePayment(payment)} disabled={deletingId === payment.id}
+                      className="p-1.5 rounded-lg hover:bg-red-50 text-gray-400 hover:text-red-500 transition-all disabled:opacity-50 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 shrink-0">
+                      {deletingId === payment.id ? <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" /> : <Trash2 size={12} />}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )
+          )}
+          {tab === 'edit' && (
+            <div className="space-y-3">
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Who owes you?</label>
+                <input value={editName} onChange={e => setEditName(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Amount (Rp)</label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 font-medium select-none">Rp</span>
+                  <input type="text" inputMode="numeric" value={editAmount} onChange={e => setEditAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+                    className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
+                </div>
+                {editAmount && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(parseFloat(editAmount) || 0)}</p>}
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Due date <span className="text-gray-300">(optional)</span></label>
+                <input type="date" value={editDueDate} onChange={e => setEditDueDate(e.target.value)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 mb-1 block">Note <span className="text-gray-300">(optional)</span></label>
+                <input value={editNote} onChange={e => setEditNote(e.target.value)} placeholder="Add a note..."
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+              </div>
+              <button onClick={handleEdit} disabled={editSaving}
+                className="w-full bg-black text-white rounded-lg py-2.5 text-sm font-medium hover:bg-gray-800 active:scale-[.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
+                {editSaving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Check size={14} /> Save changes</>}
+              </button>
+              <div className="pt-2 border-t border-gray-100">
+                <button onClick={handleArchive} disabled={archiving}
+                  className="w-full border border-red-200 text-red-500 hover:bg-red-50 rounded-lg py-2.5 text-sm font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50">
+                  {archiving ? <div className="w-4 h-4 border-2 border-red-300 border-t-red-500 rounded-full animate-spin" /> : <><Trash2 size={14} /> Delete this debt</>}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Budget Simulator Modal ───────────────────────────────────────────────────
 function BudgetSimulatorModal({
   thisMonthIncomeTot, categoryTotals,
@@ -2328,6 +2625,11 @@ export default function Dashboard() {
   const [billParticipants, setBillParticipants] = useState<SplitBillParticipant[]>([])
   const [showAddSplitBill, setShowAddSplitBill] = useState(false)
   const [openSplitBill, setOpenSplitBill]     = useState<SplitBill | null>(null)
+  const [debts, setDebts]                     = useState<Debt[]>([])
+  const [debtPayments, setDebtPayments]       = useState<DebtPayment[]>([])
+  const [showAddDebt, setShowAddDebt]         = useState(false)
+  const [loggingDebt, setLoggingDebt]         = useState<Debt | null>(null)
+  const [openDebt, setOpenDebt]               = useState<Debt | null>(null)
   const [showSimulator, setShowSimulator]     = useState(false)
   const [menuOpen, setMenuOpen]               = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -2349,7 +2651,7 @@ export default function Dashboard() {
     setUserEmail(user.email ?? '')
     const rawName = user.user_metadata?.full_name ?? user.email?.split('@')[0] ?? ''
     setFullName(rawName.split(' ')[0])
-    await Promise.all([fetchExpenses(user.id), fetchIncome(user.id), fetchBudgets(user.id), fetchGoals(user.id), fetchRecurring(user.id), fetchPools(user.id), fetchSplitBills(user.id)])
+    await Promise.all([fetchExpenses(user.id), fetchIncome(user.id), fetchBudgets(user.id), fetchGoals(user.id), fetchRecurring(user.id), fetchPools(user.id), fetchSplitBills(user.id), fetchDebts(user.id)])
     setLoading(false)
   }
 
@@ -2394,6 +2696,14 @@ export default function Dashboard() {
     if (bills && bills.length > 0) {
       const { data: parts } = await supabase.from('split_bill_participants').select('*').eq('user_id', uid).order('created_at', { ascending: true })
       setBillParticipants(parts || [])
+    }
+  }
+  const fetchDebts = async (uid: string) => {
+    const { data: ds } = await supabase.from('debts').select('*').eq('user_id', uid).eq('is_archived', false).order('created_at', { ascending: false })
+    setDebts(ds || [])
+    if (ds && ds.length > 0) {
+      const { data: payments } = await supabase.from('debt_payments').select('*').eq('user_id', uid).order('created_at', { ascending: false })
+      setDebtPayments(payments || [])
     }
   }
 
@@ -2630,6 +2940,38 @@ export default function Dashboard() {
     setOpenSplitBill(prev => prev?.id === billId ? null : prev)
   }
 
+  // ── Debts ──────────────────────────────────────────────────────────────────
+  const handleAddDebt = async (data: { person_name: string; amount: number; note: string; due_date: string }) => {
+    const { data: ud } = await supabase.auth.getUser(); const user = ud.user; if (!user) return
+    const { data: inserted, error } = await supabase.from('debts')
+      .insert({ ...data, due_date: data.due_date || null, user_id: user.id, is_archived: false }).select().single()
+    if (!error && inserted) setDebts(prev => [inserted, ...prev])
+    setShowAddDebt(false)
+  }
+  const handleLogDebtPayment = async (debtId: string, amount: number, note: string) => {
+    const { data: ud } = await supabase.auth.getUser(); const user = ud.user; if (!user) return
+    const { data: inserted, error } = await supabase.from('debt_payments')
+      .insert({ debt_id: debtId, user_id: user.id, amount, note: note.trim() || null }).select().single()
+    if (!error && inserted) setDebtPayments(prev => [inserted, ...prev])
+    setLoggingDebt(null)
+  }
+  const handleDeleteDebtPayment = async (payment: DebtPayment) => {
+    await supabase.from('debt_payments').delete().eq('id', payment.id)
+    setDebtPayments(prev => prev.filter(p => p.id !== payment.id))
+  }
+  const handleEditDebt = async (debtId: string, updated: Partial<Pick<Debt, 'person_name' | 'amount' | 'note' | 'due_date'>>) => {
+    const { error } = await supabase.from('debts').update(updated).eq('id', debtId)
+    if (!error) {
+      setDebts(prev => prev.map(d => d.id === debtId ? { ...d, ...updated } : d))
+      setOpenDebt(prev => prev?.id === debtId ? { ...prev, ...updated } : prev)
+    }
+  }
+  const handleArchiveDebt = async (debtId: string) => {
+    await supabase.from('debts').update({ is_archived: true }).eq('id', debtId)
+    setDebts(prev => prev.filter(d => d.id !== debtId))
+    setOpenDebt(prev => prev?.id === debtId ? null : prev)
+  }
+
   // ── Derived ──────────────────────────────────────────────────────────────────
   const thisMonthExpenses = useMemo(() => expenses.filter(e => inMonth(e.created_at, selectedMonth)), [expenses, selectedMonth])
   const poolsThisMonth = useMemo<ExpensePoolWithStats[]>(() =>
@@ -2648,6 +2990,15 @@ export default function Dashboard() {
       const settled   = participants.length > 0 && paidCount === participants.length
       return { bill, participants, owed, collected, paidCount, settled }
     }), [splitBills, billParticipants])
+  const debtsWithStats = useMemo<DebtWithStats[]>(() =>
+    debts.map(debt => {
+      const payments  = debtPayments.filter(p => p.debt_id === debt.id)
+      const paid      = payments.reduce((s, p) => s + p.amount, 0)
+      const remaining = debt.amount - paid
+      const settled   = remaining <= 0
+      const overdue   = !settled && !!debt.due_date && new Date(debt.due_date) < new Date(new Date().toDateString())
+      return { debt, payments, paid, remaining, pct: Math.min(debt.amount > 0 ? (paid / debt.amount) * 100 : 0, 100), settled, overdue }
+    }), [debts, debtPayments])
   const lastMonthExpenses = useMemo(() => {
     const now = new Date(selectedMonth + '-02'); now.setMonth(now.getMonth() - 1)
     const key = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
@@ -3217,6 +3568,71 @@ export default function Dashboard() {
             )}
           </CollapsibleSection>
 
+          {/* ── Money Owed to You ── */}
+          <CollapsibleSection
+            title="Money owed to you" icon={<CreditCard size={13} />}
+            defaultOpen={debts.length > 0}
+            badge={debts.length} badgeColor="bg-red-500"
+            headerRight={
+              <button onClick={e => { e.stopPropagation(); setShowAddDebt(true) }}
+                className="flex items-center gap-1 text-xs text-gray-400 hover:text-black transition-colors">
+                <Plus size={12} /> Add
+              </button>
+            }
+          >
+            {debts.length === 0 ? (
+              <div className="text-center py-6">
+                <CreditCard size={28} className="mx-auto mb-2 text-gray-200" />
+                <p className="text-xs text-gray-400 font-medium mb-0.5">No debts yet</p>
+                <p className="text-xs text-gray-300 mb-3">Track money people owe you</p>
+                <button onClick={() => setShowAddDebt(true)}
+                  className="inline-flex items-center gap-1.5 bg-black text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-all">
+                  <Plus size={12} /> Add first debt
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {debtsWithStats.map(({ debt, paid, remaining, pct, settled, overdue }) => (
+                  <div key={debt.id} onClick={() => setOpenDebt(debt)}
+                    className="border border-gray-100 rounded-xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <div className="w-6 h-6 bg-gray-50 rounded-lg flex items-center justify-center shrink-0">
+                          <span className="text-gray-600"><CreditCard size={14} /></span>
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{debt.person_name}</p>
+                          <p className="text-xs text-gray-400">{fmt(debt.amount)} total</p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {settled
+                          ? <span className="text-[10px] bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded-full font-medium">Settled</span>
+                          : overdue
+                          ? <span className="flex items-center gap-0.5 text-[10px] text-red-500 font-medium"><AlertTriangle size={10} /> Overdue</span>
+                          : <span className="text-[10px] text-gray-400">{fmtShort(remaining)} left</span>}
+                        <RowMenu items={[
+                          ...(!settled ? [{ label: 'Log payment', icon: <Plus size={13} />, onClick: () => setLoggingDebt(debt) }] : []),
+                          { label: 'Details', icon: <History size={13} />, onClick: () => setOpenDebt(debt) },
+                          { label: 'Delete', icon: <Trash2 size={13} />, onClick: () => handleArchiveDebt(debt.id), danger: true },
+                        ]} />
+                      </div>
+                    </div>
+                    <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden mb-1.5">
+                      <div className={`h-full rounded-full transition-all duration-700 ${settled ? 'bg-emerald-500' : 'bg-black'}`} style={{ width: `${pct}%` }} />
+                    </div>
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="text-gray-500">{fmt(paid)} paid back</span>
+                      {settled
+                        ? <span className="text-emerald-500 font-medium">Fully paid</span>
+                        : <span className={overdue ? 'text-red-500 font-medium' : 'text-gray-400'}>{fmt(remaining)} remaining</span>}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CollapsibleSection>
+
           {/* ── Savings Goals ── */}
           <CollapsibleSection
             title="Savings goals" icon={<Flag size={13} />} defaultOpen={false}
@@ -3577,6 +3993,9 @@ export default function Dashboard() {
       {openPool       && (() => { const stats = poolsThisMonth.find(s => s.pool.id === openPool.id); return stats ? <PoolDetailModal stats={stats} selectedMonth={selectedMonth} onClose={() => setOpenPool(null)} onLogEntry={() => {}} onDeleteEntry={handleDeletePoolEntry} onEditPool={(u) => handleEditPool(openPool.id, u)} onArchivePool={() => handleArchivePool(openPool.id)} onOpenLog={() => { setLoggingPool(openPool); setOpenPool(null) }} /> : null })()}
       {showAddSplitBill && <AddSplitBillModal onClose={() => setShowAddSplitBill(false)} onSave={handleAddSplitBill} />}
       {openSplitBill  && (() => { const stats = billsWithStats.find(s => s.bill.id === openSplitBill.id); return stats ? <SplitBillDetailModal stats={stats} onClose={() => setOpenSplitBill(null)} onTogglePaid={handleToggleParticipantPaid} onAddParticipant={(name, share) => handleAddParticipant(openSplitBill.id, name, share)} onDeleteParticipant={handleDeleteParticipant} onEditBill={(u) => handleEditSplitBill(openSplitBill.id, u)} onDeleteBill={() => handleDeleteSplitBill(openSplitBill.id)} /> : null })()}
+      {showAddDebt    && <AddDebtModal onClose={() => setShowAddDebt(false)} onSave={handleAddDebt} />}
+      {loggingDebt    && (() => { const stats = debtsWithStats.find(s => s.debt.id === loggingDebt.id); return stats ? <LogDebtPaymentModal debt={loggingDebt} remaining={stats.remaining} onClose={() => setLoggingDebt(null)} onSave={(amt, note) => handleLogDebtPayment(loggingDebt.id, amt, note)} /> : null })()}
+      {openDebt       && (() => { const stats = debtsWithStats.find(s => s.debt.id === openDebt.id); return stats ? <DebtDetailModal stats={stats} onClose={() => setOpenDebt(null)} onOpenLog={() => { setLoggingDebt(openDebt); setOpenDebt(null) }} onDeletePayment={handleDeleteDebtPayment} onEditDebt={(u) => handleEditDebt(openDebt.id, u)} onArchiveDebt={() => handleArchiveDebt(openDebt.id)} /> : null })()}
     </>
   )
 }
