@@ -2590,6 +2590,7 @@ export default function Dashboard() {
   const [recurring, setRecurring]             = useState<RecurringExpense[]>([])
   const [activeFilter, setActiveFilter]       = useState<Category | 'all'>('all')
   const [activeTab, setActiveTab]             = useState<'expenses' | 'income' | 'bills'>('expenses')
+  const [manageTab, setManageTab]             = useState<'pools' | 'splits' | 'owed' | 'goals'>('pools')
   const [selectedMonth, setSelectedMonth]     = useState(currentMonth())
   const [userEmail, setUserEmail]             = useState('')
   const [fullName, setFullName]               = useState('')
@@ -3120,10 +3121,10 @@ export default function Dashboard() {
       `}</style>
 
       <div className="min-h-screen bg-white">
-        <div className="max-w-2xl mx-auto px-4 sm:px-5 py-5 sm:py-7">
-
-          {/* ── Header ── */}
-          <div className="flex justify-between items-center mb-5">
+        {/* ── Sticky Top Bar ── */}
+        <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-100">
+          <div className="max-w-2xl mx-auto px-4 sm:px-5 py-2.5">
+          <div className="flex justify-between items-center">
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0"><img src="/logo.png" alt="logo" className="w-full h-full object-cover" /></div>
               <div>
@@ -3179,13 +3180,17 @@ export default function Dashboard() {
 
           {/* Search */}
           {showSearch && (
-            <div className="relative mb-4 animate-slide-up">
+            <div className="relative mt-2.5 animate-slide-up">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input autoFocus value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search expenses, income, notes..."
                 className="w-full border border-gray-200 rounded-lg pl-9 pr-9 py-2.5 text-sm text-black focus:outline-none focus:border-black transition" />
               {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black"><X size={14} /></button>}
             </div>
           )}
+          </div>
+        </header>
+
+        <div className="max-w-2xl mx-auto px-4 sm:px-5 py-5">
 
           {/* ── Welcome + Balance Card ── */}
           <div className="mb-4">
@@ -3430,18 +3435,40 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* ── Expense Pools ── */}
-          <CollapsibleSection
-            title="Expense pools" icon={<Wallet size={13} />}
-            defaultOpen={expensePools.length > 0}
-            badge={expensePools.length} badgeColor="bg-red-500"
-            headerRight={
-              <button onClick={e => { e.stopPropagation(); setShowAddPool(true) }}
-                className="flex items-center gap-1 text-xs text-gray-400 hover:text-black transition-colors">
+          {/* ── Manage: Pools / Splits / Owed / Goals ── */}
+          <div className="border border-gray-100 rounded-xl mb-4 overflow-hidden">
+            <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-3 border-b border-gray-100">
+              <div className="flex gap-1 bg-gray-100 p-1 rounded-lg overflow-x-auto no-scrollbar">
+                {([
+                  { key: 'pools',  label: 'Pools',  count: expensePools.length },
+                  { key: 'splits', label: 'Splits', count: splitBills.length },
+                  { key: 'owed',   label: 'Owed',   count: debts.length },
+                  { key: 'goals',  label: 'Goals',  count: savingsGoals.length },
+                ] as const).map(t => (
+                  <button key={t.key} onClick={() => setManageTab(t.key)}
+                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${manageTab === t.key ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-black'}`}>
+                    {t.label}
+                    {t.count > 0 && (
+                      <span className={`${manageTab === t.key ? 'bg-black text-white' : 'bg-red-500 text-white'} rounded-full text-[9px] min-w-[16px] h-4 px-1 flex items-center justify-center font-medium`}>{t.count}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              <button
+                onClick={() => {
+                  if (manageTab === 'pools') setShowAddPool(true)
+                  else if (manageTab === 'splits') setShowAddSplitBill(true)
+                  else if (manageTab === 'owed') setShowAddDebt(true)
+                  else setShowAddGoal(true)
+                }}
+                className="flex items-center gap-1 text-xs text-gray-500 hover:text-black border border-gray-200 hover:border-black px-2.5 py-1.5 rounded-lg transition-all whitespace-nowrap shrink-0">
                 <Plus size={12} /> Add
               </button>
-            }
-          >
+            </div>
+            <div className="p-3 sm:p-4">
+
+            {/* Pools */}
+            <div className={manageTab === 'pools' ? '' : 'hidden'}>
             {expensePools.length === 0 ? (
               <div className="text-center py-6">
                 <Wallet size={28} className="mx-auto mb-2 text-gray-200" />
@@ -3500,20 +3527,10 @@ export default function Dashboard() {
                 })}
               </div>
             )}
-          </CollapsibleSection>
+            </div>
 
-          {/* ── Split Bills ── */}
-          <CollapsibleSection
-            title="Split bills" icon={<Users size={13} />}
-            defaultOpen={splitBills.length > 0}
-            badge={splitBills.length} badgeColor="bg-red-500"
-            headerRight={
-              <button onClick={e => { e.stopPropagation(); setShowAddSplitBill(true) }}
-                className="flex items-center gap-1 text-xs text-gray-400 hover:text-black transition-colors">
-                <Plus size={12} /> Add
-              </button>
-            }
-          >
+            {/* Splits */}
+            <div className={manageTab === 'splits' ? '' : 'hidden'}>
             {splitBills.length === 0 ? (
               <div className="text-center py-6">
                 <Users size={28} className="mx-auto mb-2 text-gray-200" />
@@ -3566,20 +3583,10 @@ export default function Dashboard() {
                 })}
               </div>
             )}
-          </CollapsibleSection>
+            </div>
 
-          {/* ── Money Owed to You ── */}
-          <CollapsibleSection
-            title="Money owed to you" icon={<CreditCard size={13} />}
-            defaultOpen={debts.length > 0}
-            badge={debts.length} badgeColor="bg-red-500"
-            headerRight={
-              <button onClick={e => { e.stopPropagation(); setShowAddDebt(true) }}
-                className="flex items-center gap-1 text-xs text-gray-400 hover:text-black transition-colors">
-                <Plus size={12} /> Add
-              </button>
-            }
-          >
+            {/* Owed */}
+            <div className={manageTab === 'owed' ? '' : 'hidden'}>
             {debts.length === 0 ? (
               <div className="text-center py-6">
                 <CreditCard size={28} className="mx-auto mb-2 text-gray-200" />
@@ -3631,19 +3638,10 @@ export default function Dashboard() {
                 ))}
               </div>
             )}
-          </CollapsibleSection>
+            </div>
 
-          {/* ── Savings Goals ── */}
-          <CollapsibleSection
-            title="Savings goals" icon={<Flag size={13} />} defaultOpen={false}
-            badge={savingsGoals.length} badgeColor="bg-red-500"
-            headerRight={
-              <button onClick={e => { e.stopPropagation(); setShowAddGoal(true) }}
-                className="flex items-center gap-1 text-xs text-gray-400 hover:text-black transition-colors">
-                <Plus size={12} /> Add
-              </button>
-            }
-          >
+            {/* Goals */}
+            <div className={manageTab === 'goals' ? '' : 'hidden'}>
             {savingsGoals.length === 0 ? (
               <div className="text-center py-6">
                 <PiggyBank size={28} className="mx-auto mb-2 text-gray-200" />
@@ -3704,7 +3702,10 @@ export default function Dashboard() {
                 })}
               </div>
             )}
-          </CollapsibleSection>
+            </div>
+            </div>
+          </div>
+          {/* ── END Manage card ── */}
 
           {/* Transactions Tabs */}
           <div>
