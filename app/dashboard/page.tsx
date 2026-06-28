@@ -3206,6 +3206,7 @@ export default function Dashboard() {
   const [minAmount, setMinAmount]             = useState('')
   const [maxAmount, setMaxAmount]             = useState('')
   const [chartView, setChartView]             = useState<'monthly' | 'weekly'>('monthly')
+  const [catSliceSelected, setCatSliceSelected] = useState<number | null>(null)
   const [showAddExpense, setShowAddExpense]   = useState(false)
   const [editingExpense, setEditingExpense]   = useState<Expense | null>(null)
   const [deletingExpense, setDeletingExpense] = useState<Expense | null>(null)
@@ -3239,6 +3240,7 @@ export default function Dashboard() {
   const router  = useRouter()
 
   useEffect(() => { init() }, [])
+  useEffect(() => { setCatSliceSelected(null) }, [selectedMonth])
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
@@ -4105,35 +4107,52 @@ export default function Dashboard() {
                   .sort((a, b) => b.spent - a.spent)
                 let offset = 0
                 return (
-                  <div className="flex flex-col sm:flex-row items-center gap-4">
-                    {/* Donut ring */}
+                  <div className="flex flex-col items-center gap-4">
+                    {/* Donut ring, centered */}
                     <div className="relative shrink-0 animate-pop-in">
                       <svg width="120" height="120" viewBox="0 0 36 36" className="-rotate-90">
                         <circle cx="18" cy="18" r="15.915" fill="none" stroke="#f3f4f6" strokeWidth="4" />
-                        {slices.map(s => {
+                        {slices.map((s, i) => {
                           const dash = s.pct
+                          const active = catSliceSelected === i
                           const el = (
                             <circle key={s.cat} cx="18" cy="18" r="15.915" fill="none"
-                              stroke={CATEGORY_COLOR[s.cat]} strokeWidth="4"
+                              stroke={CATEGORY_COLOR[s.cat]} strokeWidth={active ? 5 : 4}
                               strokeDasharray={`${dash} ${100 - dash}`} strokeDashoffset={-offset}
-                              pathLength={100} className="transition-all duration-700" />
+                              pathLength={100} className="transition-all duration-300 cursor-pointer"
+                              style={{ opacity: catSliceSelected === null || active ? 1 : 0.35 }}
+                              onClick={() => setCatSliceSelected(prev => prev === i ? null : i)} />
                           )
                           offset += dash
                           return el
                         })}
                       </svg>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
-                        <span className="text-[9px] text-gray-400 uppercase tracking-wide">Total</span>
-                        <span className="text-sm font-semibold text-black leading-tight">{fmtShort(thisMonthTotal)}</span>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
+                        {catSliceSelected !== null && slices[catSliceSelected] ? (
+                          <>
+                            <span className="text-[10px] text-gray-500 truncate max-w-full">{CATEGORY_CONFIG[slices[catSliceSelected].cat].label.split(' ')[0]}</span>
+                            <span className="text-sm font-semibold text-black leading-tight">{fmt(slices[catSliceSelected].spent)}</span>
+                            <span className="text-[10px] text-gray-400">{slices[catSliceSelected].pct.toFixed(0)}%</span>
+                          </>
+                        ) : (
+                          <>
+                            <span className="text-[9px] text-gray-400 uppercase tracking-wide">Total</span>
+                            <span className="text-sm font-semibold text-black leading-tight">{fmtShort(thisMonthTotal)}</span>
+                          </>
+                        )}
                       </div>
                     </div>
-                    {/* Legend */}
-                    <div className="flex-1 w-full flex flex-col gap-1.5">
+                    {/* Full-width bar list */}
+                    <div className="w-full flex flex-col gap-2.5">
                       {slices.map((s, i) => (
-                        <div key={s.cat} className="legend-row flex items-center gap-2" style={{ animationDelay: `${0.04 * i}s` }}>
-                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CATEGORY_COLOR[s.cat] }} />
-                          <span className="text-xs text-gray-600 flex-1 truncate">{CATEGORY_CONFIG[s.cat].label.split(' ')[0]}</span>
-                          <span className="text-xs font-medium text-gray-400 w-8 text-right shrink-0">{s.pct.toFixed(0)}%</span>
+                        <div key={s.cat} className="legend-row flex items-center gap-2 cursor-pointer rounded-md transition-opacity"
+                          style={{ animationDelay: `${0.04 * i}s`, opacity: catSliceSelected === null || catSliceSelected === i ? 1 : 0.4 }}
+                          onClick={() => setCatSliceSelected(prev => prev === i ? null : i)}>
+                          <span className="text-xs text-gray-500 w-20 sm:w-24 shrink-0 truncate">{CATEGORY_CONFIG[s.cat].label.split(' ')[0]}</span>
+                          <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${s.pct}%`, background: CATEGORY_COLOR[s.cat] }} />
+                          </div>
+                          <span className="text-xs text-gray-400 shrink-0 whitespace-nowrap">{fmt(s.spent)} · {s.pct.toFixed(0)}%</span>
                         </div>
                       ))}
                     </div>
