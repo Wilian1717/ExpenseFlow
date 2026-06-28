@@ -5,7 +5,10 @@
       "Bash(curl -s http://localhost:3000/dashboard)",
       "Bash(curl -s -o /tmp/ef_page.html -w \"%{http_code}\" http://localhost:3000/dashboard)",
       "Read(//tmp/**)",
-      "Bash(xargs echo \"error-overlay markers:\")"
+      "Bash(xargs echo \"error-overlay markers:\")",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(curl -s -o /dev/null -w \"size:%{size_download} code:%{http_code}\\\\n\" http://localhost:3000/dashboard)"
     ]
   }
 }
