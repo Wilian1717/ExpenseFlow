@@ -99,6 +99,13 @@ const CATEGORY_CONFIG: Record<Category, { label: string; icon: React.ReactNode; 
   savings:       { label: 'Savings goals',  icon: <PiggyBank size={14} />,       bg: 'bg-emerald-50', text: 'text-emerald-800'},
   other:         { label: 'Other',          icon: <MoreHorizontal size={14} />,  bg: 'bg-gray-100',   text: 'text-gray-700'   },
 }
+
+// Real hex colors for the category donut chart (CATEGORY_CONFIG only carries Tailwind classes)
+const CATEGORY_COLOR: Record<Category, string> = {
+  food: '#16a34a', transport: '#2563eb', shopping: '#d97706', health: '#dc2626',
+  personal: '#9333ea', housing: '#ea580c', utilities: '#0891b2',
+  entertainment: '#db2777', savings: '#059669', other: '#6b7280',
+}
 const INCOME_CONFIG: Record<IncomeCategory, { label: string; icon: React.ReactNode }> = {
   salary:     { label: 'Salary',     icon: <Briefcase size={14} />  },
   freelance:  { label: 'Freelance',  icon: <DollarSign size={14} /> },
@@ -2591,6 +2598,7 @@ export default function Dashboard() {
   const [activeFilter, setActiveFilter]       = useState<Category | 'all'>('all')
   const [activeTab, setActiveTab]             = useState<'expenses' | 'income' | 'bills'>('expenses')
   const [manageTab, setManageTab]             = useState<'pools' | 'splits' | 'owed' | 'goals'>('pools')
+  const [manageOpen, setManageOpen]           = useState(false)
   const [selectedMonth, setSelectedMonth]     = useState(currentMonth())
   const [userEmail, setUserEmail]             = useState('')
   const [fullName, setFullName]               = useState('')
@@ -3023,6 +3031,19 @@ export default function Dashboard() {
     return thisMonthTotal / daysElapsed
   }, [thisMonthTotal, selectedMonth])
 
+  const safeToSpendPerDay = useMemo(() => {
+    const now = new Date()
+    const [yr, mo] = selectedMonth.split('-').map(Number)
+    const isCurrentMonth = yr === now.getFullYear() && mo === now.getMonth() + 1
+    const daysInMonth = new Date(yr, mo, 0).getDate()
+    const daysLeft = isCurrentMonth ? Math.max(daysInMonth - now.getDate() + 1, 1) : 0
+    return { perDay: daysLeft > 0 ? Math.max(netSavings, 0) / daysLeft : 0, daysLeft, isCurrentMonth }
+  }, [netSavings, selectedMonth])
+
+  // Manage card always starts collapsed on each visit
+  const toggleManage = () => setManageOpen(v => !v)
+  const manageCount = expensePools.length + splitBills.length + debts.length + savingsGoals.length
+
   const monthOverMonthPct  = lastMonthTotal === 0 ? 0 : ((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100
   const spendingRate = thisMonthIncomeTot > 0 ? Math.min((thisMonthTotal / thisMonthIncomeTot) * 100, 999) : 0
 
@@ -3114,10 +3135,14 @@ export default function Dashboard() {
       <style>{`
         @keyframes slideUp { from { transform: translateY(14px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         .animate-slide-up { animation: slideUp 0.2s ease both; }
-        .stat-card { animation: slideUp 0.3s ease both; }
+        .stat-card { animation: slideUp 0.3s ease both; transition: transform 0.2s ease, box-shadow 0.2s ease; }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,0.06); }
         .stat-card:nth-child(1){animation-delay:0.03s} .stat-card:nth-child(2){animation-delay:0.07s}
         .stat-card:nth-child(3){animation-delay:0.11s} .stat-card:nth-child(4){animation-delay:0.15s}
         .row-item { animation: slideUp 0.22s ease both; }
+        @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .animate-pop-in { animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
+        .legend-row { animation: slideUp 0.3s ease both; }
       `}</style>
 
       <div className="min-h-screen bg-white">
@@ -3304,11 +3329,23 @@ export default function Dashboard() {
                 icon: spendingRate >= 100 ? <AlertTriangle size={11} /> : <TrendingUp size={11} />
               },
               {
-                label: 'Avg / day',
-                value: fmtShort(avgPerDay),
-                sub: 'This month',
-                color: 'text-gray-400',
-                icon: null
+                label: 'Safe to spend',
+                value: !safeToSpendPerDay.isCurrentMonth
+                  ? '—'
+                  : netSavings <= 0
+                  ? `${fmtShort(0)}/day`
+                  : `${fmtShort(safeToSpendPerDay.perDay)}/day`,
+                sub: !safeToSpendPerDay.isCurrentMonth
+                  ? 'Month ended'
+                  : netSavings <= 0
+                  ? 'Over budget'
+                  : `${safeToSpendPerDay.daysLeft} days left`,
+                color: !safeToSpendPerDay.isCurrentMonth
+                  ? 'text-gray-400'
+                  : netSavings <= 0
+                  ? 'text-red-600'
+                  : 'text-green-700',
+                icon: netSavings <= 0 && safeToSpendPerDay.isCurrentMonth ? <AlertTriangle size={11} /> : <Wallet size={11} />
               },
             ].map((s, i) => (
               <div key={i} className="stat-card bg-gray-50 rounded-xl p-3 sm:p-3.5">
@@ -3371,24 +3408,48 @@ export default function Dashboard() {
 
             <div className="border border-gray-100 rounded-xl p-4">
               <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">By category</p>
-              {thisMonthTotal === 0 ? <p className="text-xs text-gray-300 text-center mt-6">No data this month</p> : (
-                <div className="flex flex-col gap-2">
-                  {(Object.keys(CATEGORY_CONFIG) as Category[]).map(cat => {
-                    const spent = categoryTotals[cat] || 0
-                    const pct   = thisMonthTotal > 0 ? (spent / thisMonthTotal) * 100 : 0
-                    if (spent === 0) return null
-                    return (
-                      <div key={cat} className="flex items-center gap-2">
-                        <span className="text-xs text-gray-500 w-16 shrink-0 truncate">{CATEGORY_CONFIG[cat].label.split(' ')[0]}</span>
-                        <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                          <div className="h-full bg-black rounded-full transition-all duration-700" style={{ width: `${pct}%` }} />
-                        </div>
-                        <span className="text-xs text-gray-400 w-7 text-right shrink-0">{pct.toFixed(0)}%</span>
+              {thisMonthTotal === 0 ? <p className="text-xs text-gray-300 text-center mt-6">No data this month</p> : (() => {
+                const slices = (Object.keys(CATEGORY_CONFIG) as Category[])
+                  .map(cat => ({ cat, spent: categoryTotals[cat] || 0, pct: (categoryTotals[cat] || 0) / thisMonthTotal * 100 }))
+                  .filter(s => s.spent > 0)
+                  .sort((a, b) => b.spent - a.spent)
+                let offset = 0
+                return (
+                  <div className="flex flex-col sm:flex-row items-center gap-4">
+                    {/* Donut ring */}
+                    <div className="relative shrink-0 animate-pop-in">
+                      <svg width="120" height="120" viewBox="0 0 36 36" className="-rotate-90">
+                        <circle cx="18" cy="18" r="15.915" fill="none" stroke="#f3f4f6" strokeWidth="4" />
+                        {slices.map(s => {
+                          const dash = s.pct
+                          const el = (
+                            <circle key={s.cat} cx="18" cy="18" r="15.915" fill="none"
+                              stroke={CATEGORY_COLOR[s.cat]} strokeWidth="4"
+                              strokeDasharray={`${dash} ${100 - dash}`} strokeDashoffset={-offset}
+                              pathLength={100} className="transition-all duration-700" />
+                          )
+                          offset += dash
+                          return el
+                        })}
+                      </svg>
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">
+                        <span className="text-[9px] text-gray-400 uppercase tracking-wide">Total</span>
+                        <span className="text-sm font-semibold text-black leading-tight">{fmtShort(thisMonthTotal)}</span>
                       </div>
-                    )
-                  })}
-                </div>
-              )}
+                    </div>
+                    {/* Legend */}
+                    <div className="flex-1 w-full flex flex-col gap-1.5">
+                      {slices.map((s, i) => (
+                        <div key={s.cat} className="legend-row flex items-center gap-2" style={{ animationDelay: `${0.04 * i}s` }}>
+                          <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CATEGORY_COLOR[s.cat] }} />
+                          <span className="text-xs text-gray-600 flex-1 truncate">{CATEGORY_CONFIG[s.cat].label.split(' ')[0]}</span>
+                          <span className="text-xs font-medium text-gray-400 w-8 text-right shrink-0">{s.pct.toFixed(0)}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
             </div>
           </div>
 
@@ -3436,7 +3497,21 @@ export default function Dashboard() {
           )}
 
           {/* ── Manage: Pools / Splits / Owed / Goals ── */}
-          <div className="border border-gray-100 rounded-xl mb-4 overflow-hidden">
+          <div className="border border-gray-100 rounded-xl mb-4 overflow-hidden animate-slide-up">
+            {/* Collapsible header */}
+            <button onClick={toggleManage} className="w-full flex items-center justify-between px-4 py-3 hover:bg-gray-50 transition-colors">
+              <span className="flex items-center gap-2">
+                <Wallet size={13} className="text-gray-400" />
+                <span className="text-xs font-medium text-gray-400 uppercase tracking-wide">Manage</span>
+                {manageCount > 0 && (
+                  <span className="bg-black text-white rounded-full text-[9px] min-w-[16px] h-4 px-1 flex items-center justify-center font-medium">{manageCount}</span>
+                )}
+              </span>
+              <ChevronDown size={14} className={`text-gray-300 transition-transform duration-300 ${manageOpen ? 'rotate-0' : '-rotate-90'}`} />
+            </button>
+            {/* Collapsible body */}
+            <div style={{ maxHeight: manageOpen ? '2000px' : '0px', opacity: manageOpen ? 1 : 0, transition: 'max-height 0.35s ease, opacity 0.25s ease', overflow: 'hidden' }}>
+            <div className="border-t border-gray-100">
             <div className="flex items-center justify-between gap-2 px-3 sm:px-4 py-3 border-b border-gray-100">
               <div className="flex gap-1 bg-gray-100 p-1 rounded-lg overflow-x-auto no-scrollbar">
                 {([
@@ -3702,6 +3777,8 @@ export default function Dashboard() {
                 })}
               </div>
             )}
+            </div>
+            </div>
             </div>
             </div>
           </div>
