@@ -12,7 +12,7 @@ import {
   Lightbulb, AlertTriangle, Flag, Flame, Search, ChevronDown,
   User, Home, Zap, Menu, ChevronLeft, ChevronRight, History, CreditCard,
   MoreVertical, Undo2, Download, SlidersHorizontal, Tv, Eye, EyeOff, Calculator,
-  Users, UserPlus
+  Users, UserPlus, Settings, Bell, LayoutGrid
 } from 'lucide-react'
 
 type Category = 'food' | 'transport' | 'shopping' | 'health' | 'personal' | 'housing' | 'utilities' | 'entertainment' | 'savings' | 'other'
@@ -201,8 +201,13 @@ function RowMenu({ items }: {
     e.stopPropagation()
     if (!open && btnRef.current) {
       const rect = btnRef.current.getBoundingClientRect()
-      const left = rect.right - 144 < 0 ? rect.left : rect.right - 144
-      setPos({ top: rect.bottom + 4, left })
+      const menuW = 144
+      const menuH = items.length * 34 + 8 // approx row height + py-1 padding
+      // Open to the left of the dots (covering the amount) and vertically centered
+      // on the button — consistent for every row, then clamped inside the viewport.
+      const left = Math.min(Math.max(rect.right - menuW, 8), window.innerWidth - menuW - 8)
+      const top  = Math.min(Math.max(rect.top + rect.height / 2 - menuH / 2, 8), window.innerHeight - menuH - 8)
+      setPos({ top, left })
     }
     setOpen(v => !v)
   }
@@ -2587,6 +2592,591 @@ function BudgetSimulatorModal({
   )
 }
 
+// ─── Expert View — presentational helpers ────────────────────────────────────
+function Sparkline({ data, stroke = '#059669', fill = 'rgba(5,150,105,0.08)', height = 36, labels, format }: {
+  data: number[]; stroke?: string; fill?: string; height?: number; labels?: string[]; format?: (v: number) => string
+}) {
+  const [hover, setHover] = useState<number | null>(null)
+  if (!data || data.length === 0) return null
+  const max = Math.max(...data, 1), min = Math.min(...data, 0)
+  const range = max - min || 1, w = 100, h = height
+  const xPct = (i: number) => data.length === 1 ? 0 : (i / (data.length - 1)) * 100
+  const yOf = (v: number) => h - ((v - min) / range) * h
+  const pts = data.map((v, i) => [(xPct(i) / 100) * w, yOf(v)] as const)
+  const line = pts.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')
+  const area = `${line} L${w},${h} L0,${h} Z`
+  const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const ratio = (e.clientX - rect.left) / rect.width
+    setHover(Math.max(0, Math.min(data.length - 1, Math.round(ratio * (data.length - 1)))))
+  }
+  return (
+    <div className="relative w-full" style={{ height }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="w-full" style={{ height }}>
+        <path d={area} fill={fill} stroke="none" />
+        <path d={line} fill="none" stroke={stroke} strokeWidth={1.5} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+      {hover !== null && (
+        <>
+          <div className="absolute top-0 bottom-0 w-px pointer-events-none" style={{ left: `${xPct(hover)}%`, background: stroke, opacity: 0.35 }} />
+          <div className="absolute w-1.5 h-1.5 rounded-full pointer-events-none -translate-x-1/2 -translate-y-1/2" style={{ left: `${xPct(hover)}%`, top: yOf(data[hover]), background: stroke }} />
+          {format && (
+            <div className="absolute -top-6 px-1.5 py-0.5 rounded-md bg-black text-white text-[10px] font-medium whitespace-nowrap pointer-events-none -translate-x-1/2 z-10"
+              style={{ left: `${Math.min(Math.max(xPct(hover), 12), 88)}%` }}>
+              {labels?.[hover] ? `${labels[hover]} · ` : ''}{format(data[hover])}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+function Ring({ pct, size = 132, stroke = 12, color = '#111110', children }: {
+  pct: number; size?: number; stroke?: number; color?: string; children?: React.ReactNode
+}) {
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  const off = c - (Math.min(Math.max(pct, 0), 100) / 100) * c
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#f1f1ef" strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round"
+          strokeDasharray={c} strokeDashoffset={off} className="transition-all duration-700" />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center text-center">{children}</div>
+    </div>
+  )
+}
+
+function CatIcon({ category, size = 36 }: { category: Category; size?: number }) {
+  const cfg = CATEGORY_CONFIG[category]
+  return (
+    <div className={`rounded-xl ${cfg.bg} ${cfg.text} flex items-center justify-center shrink-0`} style={{ width: size, height: size }}>
+      {cfg.icon}
+    </div>
+  )
+}
+
+function SettingsModal({ value, onChange, onClose }: {
+  value: 'beginner' | 'expert'; onChange: (v: 'beginner' | 'expert') => void; onClose: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0" onClick={onClose}>
+      <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-xl animate-slide-up" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-base font-semibold text-black flex items-center gap-2"><Settings size={16} /> Settings</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-black"><X size={18} /></button>
+        </div>
+        <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Dashboard view</p>
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            { key: 'beginner', title: 'Beginner', desc: 'Simple, focused, mobile-first' },
+            { key: 'expert', title: 'Expert', desc: 'Full dashboard with sidebar & analytics' },
+          ] as const).map(o => (
+            <button key={o.key} onClick={() => onChange(o.key)}
+              className={`text-left rounded-xl border p-3 transition-all ${value === o.key ? 'border-black bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-sm font-medium text-black">{o.title}</span>
+                {value === o.key && <Check size={14} className="text-black" />}
+              </div>
+              <span className="text-xs text-gray-400 leading-snug block">{o.desc}</span>
+            </button>
+          ))}
+        </div>
+        <button onClick={onClose} className="w-full mt-4 bg-black text-white text-sm font-medium py-2.5 rounded-xl hover:bg-gray-800 transition-all">Done</button>
+      </div>
+    </div>
+  )
+}
+
+// ─── Expert View — full dashboard layout ──────────────────────────────────────
+interface ExpertViewProps {
+  fullName: string
+  selectedMonth: string
+  last6Months: { key: string; label: string; total: number }[]
+  incomeLast6Months: { key: string; label: string; total: number }[]
+  cumulativeBalance: number; netSavings: number
+  thisMonthIncomeTot: number; thisMonthTotal: number; lastMonthTotal: number
+  monthOverMonthPct: number; spendingRate: number; avgPerDay: number
+  safeToSpendPerDay: { perDay: number; daysLeft: number; isCurrentMonth: boolean }
+  savingsRatePct: number
+  dailySeries: number[]
+  monthlyProgress: { budget: number; spent: number; pct: number; left: number; basis: 'budget' | 'income' }
+  primaryGoal: SavingsGoal | null
+  categoryTotals: Partial<Record<Category, number>>
+  weeklyData: { label: string; total: number }[]
+  maxMonthly: number; maxWeekly: number
+  chartView: 'monthly' | 'weekly'
+  budgets: Budget[]; budgetSpend: Partial<Record<Category, number>>
+  filteredExpenses: Expense[]
+  activeFilter: Category | 'all'
+  activeTab: 'expenses' | 'income' | 'bills'
+  searchQuery: string
+  manageTab: 'pools' | 'splits' | 'owed' | 'goals'
+  poolsThisMonth: { pool: ExpensePool; spent: number; remaining: number; pct: number }[]
+  billsWithStats: any[]
+  debtsWithStats: any[]
+  savingsGoals: SavingsGoal[]
+  expensePools: ExpensePool[]; splitBills: SplitBill[]; debts: Debt[]
+  // setters / callbacks
+  setSelectedMonth: (m: string) => void
+  setChartView: (v: 'monthly' | 'weekly') => void
+  setActiveFilter: (c: Category | 'all') => void
+  setActiveTab: (t: 'expenses' | 'income' | 'bills') => void
+  setManageTab: (t: 'pools' | 'splits' | 'owed' | 'goals') => void
+  setSearchQuery: (q: string) => void
+  setShowAddExpense: (v: boolean) => void
+  setShowAddIncome: (v: boolean) => void
+  setShowAddBill: (v: boolean) => void
+  setShowSimulator: (v: boolean) => void
+  setShowSettings: (v: boolean) => void
+  setEditingExpense: (e: Expense) => void
+  setDeletingExpense: (e: Expense) => void
+  setOpenPool: (p: ExpensePool) => void
+  setLoggingPool: (p: ExpensePool) => void
+  setOpenSplitBill: (b: SplitBill) => void
+  setOpenDebt: (d: Debt) => void
+  setLoggingDebt: (d: Debt) => void
+  setOpenGoal: (g: SavingsGoal) => void
+  setShowAddPool: (v: boolean) => void
+  setShowAddSplitBill: (v: boolean) => void
+  setShowAddDebt: (v: boolean) => void
+  setShowAddGoal: (v: boolean) => void
+  onLogout: () => void
+}
+
+function ExpertView(p: ExpertViewProps) {
+  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [activeNav, setActiveNav] = useState('dash')
+  const [barHover, setBarHover] = useState<number | null>(null)
+  const [sliceHover, setSliceHover] = useState<number | null>(null)
+
+  const hour = new Date().getHours()
+  const greeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
+  const fmtDate = (iso: string) => { const d = new Date(iso); return `${MONTHS_SHORT[d.getMonth()]} ${d.getDate()}` }
+  const scrollTo = (id: string) => document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+
+  const nav = [
+    { key: 'dash',    label: 'Dashboard', icon: <LayoutGrid size={17} />,    onClick: () => window.scrollTo({ top: 0, behavior: 'smooth' }) },
+    { key: 'exp',     label: 'Expenses',  icon: <Receipt size={17} />,       onClick: () => { p.setActiveTab('expenses'); scrollTo('ex-transactions') } },
+    { key: 'inc',     label: 'Income',    icon: <ArrowUpCircle size={17} />, onClick: () => { p.setActiveTab('income');  scrollTo('ex-transactions') } },
+    { key: 'bills',   label: 'Bills',     icon: <Calendar size={17} />,      onClick: () => { p.setActiveTab('bills');   scrollTo('ex-transactions') } },
+    { key: 'budget',  label: 'Budgets',   icon: <Target size={17} />,        onClick: () => scrollTo('ex-progress') },
+    { key: 'goals',   label: 'Goals',     icon: <Flag size={17} />,          onClick: () => { p.setManageTab('goals'); scrollTo('ex-manage') } },
+    { key: 'reports', label: 'Reports',   icon: <BarChart2 size={17} />,     onClick: () => p.setShowSimulator(true) },
+  ]
+  const onNav = (item: typeof nav[number]) => { setActiveNav(item.key); item.onClick(); setDrawerOpen(false) }
+
+  const NavList = ({ compact = false }: { compact?: boolean }) => (
+    <nav className="flex flex-col gap-1">
+      {nav.map(item => (
+        <button key={item.key} onClick={() => onNav(item)}
+          className={`flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all ${activeNav === item.key ? 'bg-black text-white' : 'text-gray-500 hover:bg-gray-100 hover:text-black'}`}>
+          <span className={activeNav === item.key ? 'text-white' : 'text-gray-400'}>{item.icon}</span>
+          {item.label}
+        </button>
+      ))}
+      {compact && (
+        <button onClick={() => { p.setShowSettings(true); setDrawerOpen(false) }}
+          className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-black transition-all">
+          <Settings size={17} className="text-gray-400" /> Settings
+        </button>
+      )}
+    </nav>
+  )
+
+  const donut = (() => {
+    const slices = (Object.keys(CATEGORY_CONFIG) as Category[])
+      .map(cat => ({ cat, spent: p.categoryTotals[cat] || 0, pct: p.thisMonthTotal > 0 ? (p.categoryTotals[cat] || 0) / p.thisMonthTotal * 100 : 0 }))
+      .filter(s => s.spent > 0).sort((a, b) => b.spent - a.spent)
+    let offset = 0
+    return { slices, render: () => (
+      <div className="flex items-center gap-4">
+        <div className="relative shrink-0 animate-pop-in">
+          <svg width="120" height="120" viewBox="0 0 36 36" className="-rotate-90">
+            <circle cx="18" cy="18" r="15.915" fill="none" stroke="#f3f4f6" strokeWidth="4" />
+            {slices.map((s, i) => {
+              const dash = s.pct
+              const active = sliceHover === i
+              const el = <circle key={s.cat} cx="18" cy="18" r="15.915" fill="none" stroke={CATEGORY_COLOR[s.cat]}
+                strokeWidth={active ? 5 : 4} strokeDasharray={`${dash} ${100 - dash}`} strokeDashoffset={-offset} pathLength={100}
+                className="transition-all duration-300 cursor-pointer" style={{ opacity: sliceHover === null || active ? 1 : 0.35 }}
+                onMouseEnter={() => setSliceHover(i)} onMouseLeave={() => setSliceHover(null)} />
+              offset += dash
+              return el
+            })}
+          </svg>
+          <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
+            {sliceHover !== null && slices[sliceHover] ? (
+              <>
+                <span className="text-[10px] text-gray-500 truncate max-w-full">{CATEGORY_CONFIG[slices[sliceHover].cat].label.split(' ')[0]}</span>
+                <span className="text-xs font-semibold text-black leading-tight">{fmt(slices[sliceHover].spent)}</span>
+                <span className="text-[10px] text-gray-400">{slices[sliceHover].pct.toFixed(0)}%</span>
+              </>
+            ) : (
+              <>
+                <span className="text-[9px] text-gray-400 uppercase tracking-wide">Total</span>
+                <span className="text-xs font-semibold text-black leading-tight">{fmt(p.thisMonthTotal)}</span>
+              </>
+            )}
+          </div>
+        </div>
+        <div className="flex-1 w-full flex flex-col gap-1.5">
+          {slices.slice(0, 6).map((s, i) => (
+            <div key={s.cat} className="legend-row flex items-center gap-2 cursor-pointer rounded-md px-1 -mx-1 transition-colors hover:bg-gray-50"
+              style={{ animationDelay: `${0.04 * i}s`, opacity: sliceHover === null || sliceHover === i ? 1 : 0.4 }}
+              onMouseEnter={() => setSliceHover(i)} onMouseLeave={() => setSliceHover(null)}>
+              <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: CATEGORY_COLOR[s.cat] }} />
+              <span className="text-xs text-gray-600 flex-1 truncate">{CATEGORY_CONFIG[s.cat].label.split(' ')[0]}</span>
+              <span className="text-xs font-medium text-gray-400 w-8 text-right shrink-0">{s.pct.toFixed(0)}%</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    ) }
+  })()
+
+  // Stat cards with interactive mini sparklines
+  const rateSeries = p.last6Months.map((m, i) => { const inc = p.incomeLast6Months[i]?.total || 0; return inc > 0 ? Math.min(m.total / inc * 100, 150) : 0 })
+  const monthLabels = p.last6Months.map(m => m.label)
+  const GREEN = '#059669', RED = '#dc2626'
+  const statCards = [
+    { label: 'Income',        value: fmt(p.thisMonthIncomeTot), delta: '', spark: p.incomeLast6Months.map(m => m.total), color: GREEN, fmtTip: (v: number) => fmt(v), labels: monthLabels },
+    { label: 'Expenses',      value: fmt(p.thisMonthTotal), delta: p.lastMonthTotal > 0 ? `${p.monthOverMonthPct > 0 ? '↑' : '↓'} ${Math.abs(p.monthOverMonthPct).toFixed(0)}%` : '', spark: p.last6Months.map(m => m.total), color: RED, fmtTip: (v: number) => fmt(v), labels: monthLabels },
+    { label: 'Spending rate', value: p.thisMonthIncomeTot > 0 ? `${p.spendingRate.toFixed(0)}%` : '—', delta: '', spark: rateSeries, color: p.spendingRate >= 100 ? RED : GREEN, fmtTip: (v: number) => `${v.toFixed(0)}%`, labels: monthLabels },
+    { label: 'Safe to spend', value: p.safeToSpendPerDay.isCurrentMonth ? `${fmt(p.safeToSpendPerDay.perDay)}/day` : '—', delta: p.safeToSpendPerDay.isCurrentMonth ? `${p.safeToSpendPerDay.daysLeft}d left` : 'Ended', spark: p.dailySeries, color: GREEN, fmtTip: (v: number) => fmt(v), labels: undefined },
+  ]
+
+  const filterChips: (Category | 'all')[] = ['all', 'food', 'transport', 'shopping', 'health', 'personal', 'housing']
+
+  return (
+    <div className="min-h-screen bg-gray-50 lg:flex">
+      {/* Sidebar (desktop) */}
+      <aside className="hidden lg:flex flex-col w-60 shrink-0 border-r border-gray-100 bg-white sticky top-0 h-screen">
+        <div className="flex items-center gap-2.5 px-5 h-16 border-b border-gray-100">
+          <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0"><img src="/logo.png" alt="logo" className="w-full h-full object-cover" /></div>
+          <span className="font-semibold text-black tracking-tight">ExpenseFlow</span>
+        </div>
+        <div className="flex-1 overflow-y-auto px-3 py-4"><NavList /></div>
+        <div className="px-3 pb-4 border-t border-gray-100 pt-3">
+          <button onClick={() => p.setShowSettings(true)}
+            className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-gray-500 hover:bg-gray-100 hover:text-black transition-all">
+            <Settings size={17} className="text-gray-400" /> Settings
+          </button>
+          <div className="flex items-center gap-2.5 px-3 py-2 mt-1">
+            <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-600"><User size={15} /></div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium text-black truncate">{p.fullName || 'Account'}</p>
+              <p className="text-[11px] text-gray-400">Free plan</p>
+            </div>
+            <button onClick={p.onLogout} title="Logout" className="text-gray-400 hover:text-red-500 transition-colors"><LogOut size={15} /></button>
+          </div>
+        </div>
+      </aside>
+
+      {/* Mobile drawer */}
+      {drawerOpen && (
+        <div className="lg:hidden fixed inset-0 z-[250] flex" onClick={() => setDrawerOpen(false)}>
+          <div className="absolute inset-0 bg-black/30" />
+          <div className="relative bg-white w-64 max-w-[80%] h-full p-4 shadow-xl animate-slide-up" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center gap-2.5 mb-4 px-1">
+              <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0"><img src="/logo.png" alt="logo" className="w-full h-full object-cover" /></div>
+              <span className="font-semibold text-black">ExpenseFlow</span>
+            </div>
+            <NavList compact />
+            <button onClick={() => { p.onLogout() }} className="flex items-center gap-3 px-3 py-2.5 mt-1 rounded-xl text-sm font-medium text-red-500 hover:bg-red-50 transition-all w-full">
+              <LogOut size={17} /> Logout
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Main */}
+      <main className="flex-1 min-w-0 pb-20 lg:pb-0">
+        {/* Top bar */}
+        <header className="sticky top-0 z-40 bg-gray-50/80 backdrop-blur-md border-b border-gray-100">
+          <div className="flex items-center gap-3 px-4 sm:px-6 lg:px-8 h-16">
+            <button onClick={() => setDrawerOpen(true)} className="lg:hidden text-gray-500 hover:text-black"><Menu size={20} /></button>
+            <div className="hidden sm:flex items-center gap-2 flex-1 max-w-md bg-white border border-gray-200 rounded-xl px-3 py-2">
+              <Search size={15} className="text-gray-400" />
+              <input value={p.searchQuery} onChange={e => p.setSearchQuery(e.target.value)} placeholder="Search transactions..."
+                className="flex-1 text-sm text-black bg-transparent focus:outline-none" />
+            </div>
+            <div className="flex items-center gap-2 ml-auto">
+              <MonthPickerDropdown months={p.last6Months} selected={p.selectedMonth} onChange={p.setSelectedMonth} />
+              <button onClick={() => p.setShowSimulator(true)} title="Budget simulator"
+                className="hidden md:flex items-center gap-1.5 border border-gray-200 bg-white text-gray-600 hover:text-black hover:border-black text-sm font-medium px-3 py-2 rounded-xl transition-all">
+                <Calculator size={15} /> <span className="hidden lg:inline">Simulate</span>
+              </button>
+              <button onClick={() => p.setShowAddIncome(true)}
+                className="flex items-center gap-1.5 border border-gray-200 bg-white text-emerald-700 hover:border-emerald-600 text-sm font-medium px-3 py-2 rounded-xl transition-all">
+                <ArrowUpCircle size={15} /> <span className="hidden sm:inline">Income</span>
+              </button>
+              <button onClick={() => p.setShowAddExpense(true)}
+                className="flex items-center gap-1.5 bg-black text-white text-sm font-medium px-3 py-2 rounded-xl hover:bg-gray-800 transition-all">
+                <Plus size={15} /> <span className="hidden sm:inline">New Expense</span>
+              </button>
+              <button onClick={() => p.setShowSettings(true)} className="w-9 h-9 rounded-xl border border-gray-200 bg-white flex items-center justify-center text-gray-500 hover:text-black hover:border-black transition-all">
+                <Settings size={16} />
+              </button>
+            </div>
+          </div>
+        </header>
+
+        <div className="px-4 sm:px-6 lg:px-8 py-5 max-w-[1400px] mx-auto">
+          {/* Greeting */}
+          <div className="mb-5">
+            <h1 className="text-xl sm:text-2xl font-semibold text-black tracking-tight">{greeting}, {p.fullName || 'there'} 👋</h1>
+            <p className="text-sm text-gray-400 mt-0.5">Here's what's happening with your money.</p>
+          </div>
+
+          {/* Row 1: Balance + Monthly Progress */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            {/* Total Balance */}
+            <div className="lg:col-span-2 bg-white border border-gray-100 rounded-2xl p-5 animate-slide-up">
+              <div className="flex items-start justify-between mb-1">
+                <div>
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Total balance</p>
+                  <p className={`text-3xl font-bold tracking-tight mt-1 ${p.cumulativeBalance >= 0 ? 'text-black' : 'text-red-600'}`}>{fmtFull(Math.abs(p.cumulativeBalance))}</p>
+                </div>
+                <span className={`text-xs font-medium px-2 py-1 rounded-lg ${p.netSavings >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+                  {p.netSavings >= 0 ? '↑' : '↓'} {Math.abs(p.savingsRatePct).toFixed(0)}% saved
+                </span>
+              </div>
+              <div className="h-16 my-3"><Sparkline data={p.dailySeries.length ? p.dailySeries : [0, 0]} stroke="#059669" fill="rgba(5,150,105,0.08)" height={64} format={v => fmt(v)} /></div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-2 gap-y-3 pt-3 border-t border-gray-100">
+                {[
+                  { l: 'Income', v: fmt(p.thisMonthIncomeTot), c: 'text-emerald-700' },
+                  { l: 'Expenses', v: fmt(p.thisMonthTotal), c: 'text-red-600' },
+                  { l: 'Savings', v: fmt(Math.max(p.netSavings, 0)), c: 'text-gray-900' },
+                  { l: 'Balance', v: fmt(p.cumulativeBalance), c: 'text-gray-900' },
+                ].map(s => (
+                  <div key={s.l} className="min-w-0">
+                    <p className="text-[11px] text-gray-400">{s.l}</p>
+                    <p className={`text-sm font-semibold tabular-nums truncate ${s.c}`}>{s.v}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Monthly Progress */}
+            <div id="ex-progress" className="bg-white border border-gray-100 rounded-2xl p-5 animate-slide-up">
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Monthly progress</p>
+              <div className="flex items-center gap-4">
+                <Ring pct={p.monthlyProgress.pct} size={120} stroke={11}
+                  color={p.monthlyProgress.pct >= 100 ? '#dc2626' : p.monthlyProgress.pct >= 80 ? '#d97706' : '#059669'}>
+                  <span className="text-xl font-bold text-black leading-none">{p.monthlyProgress.pct.toFixed(0)}%</span>
+                  <span className="text-[10px] text-gray-400 mt-0.5">of {p.monthlyProgress.basis}</span>
+                </Ring>
+                <div className="flex-1 min-w-0 space-y-2">
+                  <div><p className="text-[11px] text-gray-400">Budget left</p><p className="text-sm font-semibold text-black tabular-nums truncate">{fmt(p.monthlyProgress.left)}</p></div>
+                  <div><p className="text-[11px] text-gray-400">Daily average</p><p className="text-sm font-semibold text-black tabular-nums truncate">{fmt(p.avgPerDay)}</p></div>
+                  <div><p className="text-[11px] text-gray-400">Remaining days</p><p className="text-sm font-semibold text-black">{p.safeToSpendPerDay.isCurrentMonth ? `${p.safeToSpendPerDay.daysLeft} days` : '—'}</p></div>
+                </div>
+              </div>
+              {p.primaryGoal && (() => {
+                const gpct = Math.min((p.primaryGoal.current_amount / p.primaryGoal.target_amount) * 100, 100)
+                return (
+                  <div className="mt-4 pt-3 border-t border-gray-100">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-xs text-gray-500 truncate">Goal · {p.primaryGoal.title}</span>
+                      <span className="text-xs text-gray-400 tabular-nums shrink-0">{fmt(p.primaryGoal.current_amount)} / {fmt(p.primaryGoal.target_amount)}</span>
+                    </div>
+                    <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                      <div className="h-full bg-black rounded-full transition-all duration-700" style={{ width: `${gpct}%` }} />
+                    </div>
+                  </div>
+                )
+              })()}
+            </div>
+          </div>
+
+          {/* Row 2: Stat cards */}
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+            {statCards.map((s, i) => (
+              <div key={i} className="stat-card bg-white border border-gray-100 rounded-2xl p-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-gray-400">{s.label}</p>
+                  {s.delta && <span className="text-[11px] font-medium" style={{ color: s.color }}>{s.delta}</span>}
+                </div>
+                <p className="text-base sm:text-lg font-semibold text-black mt-1 tabular-nums tracking-tight truncate">{s.value}</p>
+                <div className="h-8 mt-2"><Sparkline data={s.spark.length ? s.spark : [0, 0]} height={28} stroke={s.color} fill={`${s.color}14`} labels={s.labels} format={s.fmtTip} /></div>
+              </div>
+            ))}
+          </div>
+
+          {/* Row 3: Charts + insights */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+            {/* Spending overview */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">{p.chartView === 'monthly' ? 'Spending · 6 months' : 'Weekly breakdown'}</p>
+                <div className="flex rounded-lg overflow-hidden border border-gray-200">
+                  <button onClick={() => p.setChartView('monthly')} className={`px-2.5 py-1 text-xs font-medium transition-all ${p.chartView === 'monthly' ? 'bg-black text-white' : 'text-gray-400 hover:text-black bg-white'}`}>Monthly</button>
+                  <button onClick={() => p.setChartView('weekly')} className={`px-2.5 py-1 text-xs font-medium transition-all border-l border-gray-200 ${p.chartView === 'weekly' ? 'bg-black text-white' : 'text-gray-400 hover:text-black bg-white'}`}>Weekly</button>
+                </div>
+              </div>
+              <div className="relative">
+                {barHover !== null && (() => {
+                  const arr = p.chartView === 'monthly' ? p.last6Months : p.weeklyData
+                  const item = arr[barHover]
+                  if (!item) return null
+                  const leftPct = ((barHover + 0.5) / arr.length) * 100
+                  return (
+                    <div className="absolute -top-1 z-10 bg-black text-white text-[11px] font-medium px-2 py-1 rounded-md whitespace-nowrap pointer-events-none -translate-x-1/2"
+                      style={{ left: `${Math.min(Math.max(leftPct, 14), 86)}%` }}>
+                      {item.label} · {fmt(item.total)}
+                    </div>
+                  )
+                })()}
+                <div className="flex items-end gap-2 h-44">
+                  {(p.chartView === 'monthly' ? p.last6Months : p.weeklyData).map((m, i) => {
+                    const total = m.total
+                    const max = p.chartView === 'monthly' ? p.maxMonthly : p.maxWeekly
+                    const h = total ? Math.max((total / max) * 100, 4) : 2
+                    const key = (m as { key?: string }).key
+                    const isCurrent = p.chartView === 'monthly' && key === p.selectedMonth
+                    const isHover = barHover === i
+                    return (
+                      <div key={i} className="flex-1 h-full flex flex-col justify-end items-center gap-1.5 cursor-pointer"
+                        onMouseEnter={() => setBarHover(i)} onMouseLeave={() => setBarHover(null)}
+                        onClick={() => { if (p.chartView === 'monthly' && key) p.setSelectedMonth(key) }}>
+                        <div className={`w-full max-w-[30px] rounded-t-md transition-all duration-300 bg-gradient-to-t ${isCurrent || isHover ? 'from-emerald-600 to-green-400' : 'from-emerald-200 to-green-300'}`} style={{ height: `${h}%` }} />
+                        <span className={`text-[10px] ${isCurrent ? 'text-black font-medium' : 'text-gray-400'}`}>{m.label}</span>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Donut */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-5">
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Expenses by category</p>
+              {p.thisMonthTotal === 0 ? <p className="text-xs text-gray-300 text-center mt-10">No data this month</p> : donut.render()}
+            </div>
+
+            {/* Smart insights */}
+            <div className="bg-white border border-gray-100 rounded-2xl p-5">
+              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3 flex items-center gap-1.5"><Lightbulb size={13} /> Smart insights</p>
+              <SmartInsightsContent thisMonthTotal={p.thisMonthTotal} lastMonthTotal={p.lastMonthTotal} avgPerDay={p.avgPerDay}
+                categoryTotals={p.categoryTotals} thisMonthIncomeTot={p.thisMonthIncomeTot} netSavings={p.netSavings} budgets={p.budgets} budgetSpend={p.budgetSpend} />
+            </div>
+          </div>
+
+          {/* Row 4: Transactions + Manage */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            {/* Recent transactions */}
+            <div id="ex-transactions" className="lg:col-span-2 bg-white border border-gray-100 rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-semibold text-black">Recent transactions</p>
+                <button onClick={() => p.setShowAddExpense(true)} className="text-xs text-gray-500 hover:text-black flex items-center gap-1"><Plus size={13} /> Add</button>
+              </div>
+              <div className="flex gap-1.5 overflow-x-auto no-scrollbar mb-3">
+                {filterChips.map(c => (
+                  <button key={c} onClick={() => p.setActiveFilter(c)}
+                    className={`px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap transition-all ${p.activeFilter === c ? 'bg-black text-white' : 'bg-gray-100 text-gray-500 hover:text-black'}`}>
+                    {c === 'all' ? 'All' : CATEGORY_CONFIG[c].label.split(' ')[0]}
+                  </button>
+                ))}
+              </div>
+              {p.filteredExpenses.length === 0 ? (
+                <p className="text-xs text-gray-300 text-center py-8">No transactions</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {p.filteredExpenses.slice(0, 8).map((e, i) => {
+                    const cfg = CATEGORY_CONFIG[e.category]
+                    return (
+                      <div key={e.id} className="row-item flex items-center gap-3 border border-gray-100 rounded-xl px-3 py-2.5 hover:bg-gray-50 hover:border-gray-200 transition-all" style={{ animationDelay: `${i * 0.03}s` }}>
+                        <CatIcon category={e.category} size={36} />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-medium text-gray-900 truncate">{e.title}</p>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className={`text-xs px-1.5 py-0.5 rounded-full ${cfg.bg} ${cfg.text}`}>{cfg.label}</span>
+                            {e.note && <span className="text-xs text-gray-400 truncate hidden sm:inline">{e.note}</span>}
+                          </div>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-semibold text-black tabular-nums">{fmt(e.amount)}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">{fmtDate(e.created_at)}</p>
+                        </div>
+                        <RowMenu items={[
+                          { label: 'Edit', icon: <Pencil size={13} />, onClick: () => p.setEditingExpense(e) },
+                          { label: 'Delete', icon: <Trash2 size={13} />, onClick: () => p.setDeletingExpense(e), danger: true },
+                        ]} />
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Manage */}
+            <div id="ex-manage" className="bg-white border border-gray-100 rounded-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex gap-1 bg-gray-100 p-1 rounded-lg overflow-x-auto no-scrollbar">
+                  {([
+                    { key: 'pools', label: 'Pools', count: p.expensePools.length },
+                    { key: 'splits', label: 'Splits', count: p.splitBills.length },
+                    { key: 'owed', label: 'Owed', count: p.debts.length },
+                    { key: 'goals', label: 'Goals', count: p.savingsGoals.length },
+                  ] as const).map(t => (
+                    <button key={t.key} onClick={() => p.setManageTab(t.key)}
+                      className={`flex items-center gap-1 px-2 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${p.manageTab === t.key ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-black'}`}>
+                      {t.label}{t.count > 0 && <span className={`${p.manageTab === t.key ? 'bg-black text-white' : 'bg-gray-300 text-white'} rounded-full text-[9px] min-w-[15px] h-3.5 px-1 flex items-center justify-center`}>{t.count}</span>}
+                    </button>
+                  ))}
+                </div>
+                <button onClick={() => { p.manageTab === 'pools' ? p.setShowAddPool(true) : p.manageTab === 'splits' ? p.setShowAddSplitBill(true) : p.manageTab === 'owed' ? p.setShowAddDebt(true) : p.setShowAddGoal(true) }}
+                  className="text-gray-400 hover:text-black shrink-0 ml-2"><Plus size={15} /></button>
+              </div>
+              <div className="flex flex-col gap-2 max-h-72 overflow-y-auto no-scrollbar">
+                {p.manageTab === 'pools' && (p.poolsThisMonth.length === 0 ? <p className="text-xs text-gray-300 text-center py-6">No pools yet</p> : p.poolsThisMonth.map(({ pool, remaining, pct }) => (
+                  <button key={pool.id} onClick={() => p.setOpenPool(pool)} className="text-left border border-gray-100 rounded-xl p-3 hover:border-gray-300 transition-all">
+                    <div className="flex items-center gap-2 mb-1.5"><CatIcon category={pool.category} size={26} /><span className="text-sm font-medium text-gray-900 truncate flex-1">{pool.title}</span></div>
+                    <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden mb-1"><div className={`h-full rounded-full transition-all duration-700 ${pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${pct}%` }} /></div>
+                    <p className="text-[11px] text-gray-400 tabular-nums">{fmt(remaining)} remaining</p>
+                  </button>
+                )))}
+                {p.manageTab === 'splits' && (p.billsWithStats.length === 0 ? <p className="text-xs text-gray-300 text-center py-6">No splits yet</p> : p.billsWithStats.map((b: any) => (
+                  <button key={b.bill.id} onClick={() => p.setOpenSplitBill(b.bill)} className="text-left border border-gray-100 rounded-xl p-3 hover:border-gray-300 transition-all">
+                    <p className="text-sm font-medium text-gray-900 truncate">{b.bill.title}</p>
+                    <p className="text-[11px] text-gray-400">{fmt(b.owed)} owed to you</p>
+                  </button>
+                )))}
+                {p.manageTab === 'owed' && (p.debtsWithStats.length === 0 ? <p className="text-xs text-gray-300 text-center py-6">No debts yet</p> : p.debtsWithStats.map((d: any) => (
+                  <button key={d.debt.id} onClick={() => p.setOpenDebt(d.debt)} className="text-left border border-gray-100 rounded-xl p-3 hover:border-gray-300 transition-all">
+                    <p className="text-sm font-medium text-gray-900 truncate">{d.debt.person_name}</p>
+                    <p className="text-[11px] text-gray-400">{fmt(d.remaining)} remaining</p>
+                  </button>
+                )))}
+                {p.manageTab === 'goals' && (p.savingsGoals.length === 0 ? <p className="text-xs text-gray-300 text-center py-6">No goals yet</p> : p.savingsGoals.map(g => {
+                  const gpct = Math.min((g.current_amount / g.target_amount) * 100, 100)
+                  return (
+                    <button key={g.id} onClick={() => p.setOpenGoal(g)} className="text-left border border-gray-100 rounded-xl p-3 hover:border-gray-300 transition-all">
+                      <div className="flex items-center justify-between mb-1.5"><span className="text-sm font-medium text-gray-900 truncate">{g.title}</span><span className="text-xs text-gray-400">{gpct.toFixed(0)}%</span></div>
+                      <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden"><div className="h-full bg-black rounded-full transition-all duration-700" style={{ width: `${gpct}%` }} /></div>
+                    </button>
+                  )
+                }))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Mobile bottom action bar */}
+        <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur-md border-t border-gray-100 flex items-center justify-around px-4 py-2">
+          <button onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })} className="flex flex-col items-center gap-0.5 text-gray-500"><LayoutGrid size={19} /><span className="text-[10px]">Home</span></button>
+          <button onClick={() => p.setShowAddExpense(true)} className="w-12 h-12 -mt-5 rounded-full bg-black text-white flex items-center justify-center shadow-lg"><Plus size={22} /></button>
+          <button onClick={() => p.setShowSettings(true)} className="flex flex-col items-center gap-0.5 text-gray-500"><Settings size={19} /><span className="text-[10px]">Settings</span></button>
+        </div>
+      </main>
+    </div>
+  )
+}
+
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 export default function Dashboard() {
   const [expenses, setExpenses]               = useState<Expense[]>([])
@@ -2599,6 +3189,8 @@ export default function Dashboard() {
   const [activeTab, setActiveTab]             = useState<'expenses' | 'income' | 'bills'>('expenses')
   const [manageTab, setManageTab]             = useState<'pools' | 'splits' | 'owed' | 'goals'>('pools')
   const [manageOpen, setManageOpen]           = useState(false)
+  const [viewMode, setViewMode]               = useState<'beginner' | 'expert'>('beginner')
+  const [showSettings, setShowSettings]       = useState(false)
   const [selectedMonth, setSelectedMonth]     = useState(currentMonth())
   const [userEmail, setUserEmail]             = useState('')
   const [fullName, setFullName]               = useState('')
@@ -2652,6 +3244,10 @@ export default function Dashboard() {
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [])
+
+  // Beginner/Expert view preference (read client-side to avoid hydration mismatch; default beginner)
+  useEffect(() => { const v = localStorage.getItem('ef_view'); if (v === 'expert' || v === 'beginner') setViewMode(v) }, [])
+  const changeView = (v: 'beginner' | 'expert') => { localStorage.setItem('ef_view', v); setViewMode(v) }
 
   const init = async () => {
     const { data: userData } = await supabase.auth.getUser()
@@ -3090,6 +3686,50 @@ export default function Dashboard() {
     return map
   }, [thisMonthExpenses])
 
+  // ── Expert-view derived data (real numbers, no placeholders) ──
+  // Cumulative spend per day across the selected month → drives sparklines / area chart
+  const dailySeries = useMemo(() => {
+    const [yr, mo] = selectedMonth.split('-').map(Number)
+    const daysInMonth = new Date(yr, mo, 0).getDate()
+    const perDay = new Array(daysInMonth).fill(0)
+    thisMonthExpenses.forEach(e => { const d = new Date(e.created_at).getDate(); if (d >= 1 && d <= daysInMonth) perDay[d - 1] += e.amount })
+    let run = 0
+    return perDay.map(v => (run += v)) // cumulative spend
+  }, [thisMonthExpenses, selectedMonth])
+
+  // Per-month income totals for the last 6 months (mirror of last6Months)
+  const incomeLast6Months = useMemo(() => {
+    const result: { key: string; label: string; total: number }[] = []
+    const now = new Date(); const yr = now.getFullYear(); const mo = now.getMonth()
+    for (let i = 5; i >= 0; i--) {
+      let m = mo - i; let y = yr
+      if (m < 0) { m += 12; y -= 1 }
+      const key = `${y}-${String(m + 1).padStart(2, '0')}`
+      const total = income.filter(x => inMonth(x.created_at, key)).reduce((s, x) => s + x.amount, 0)
+      result.push({ key, label: MONTHS_SHORT[m], total })
+    }
+    return result
+  }, [income])
+
+  // Monthly budget progress: prefer sum of category budgets, else fall back to income
+  const monthlyProgress = useMemo(() => {
+    const budgetSum = budgets.reduce((s, b) => s + b.limit_amount, 0)
+    const budget = budgetSum > 0 ? budgetSum : thisMonthIncomeTot
+    const spent = thisMonthTotal
+    const pct = budget > 0 ? Math.min((spent / budget) * 100, 100) : 0
+    return { budget, spent, pct, left: Math.max(budget - spent, 0), basis: budgetSum > 0 ? 'budget' as const : 'income' as const }
+  }, [budgets, thisMonthIncomeTot, thisMonthTotal])
+
+  // Primary savings goal for the Monthly Progress card (first not-yet-completed, else highest target)
+  const primaryGoal = useMemo(() => {
+    if (savingsGoals.length === 0) return null
+    const active = savingsGoals.filter(g => g.current_amount < g.target_amount)
+    const pick = (active.length > 0 ? active : savingsGoals).slice().sort((a, b) => b.target_amount - a.target_amount)[0]
+    return pick ?? null
+  }, [savingsGoals])
+
+  const savingsRatePct = thisMonthIncomeTot > 0 ? (netSavings / thisMonthIncomeTot) * 100 : 0
+
   const filteredExpenses = useMemo(() => {
     let list = activeFilter === 'all' ? thisMonthExpenses : thisMonthExpenses.filter(e => e.category === activeFilter)
     if (searchQuery.trim()) {
@@ -3143,8 +3783,40 @@ export default function Dashboard() {
         @keyframes popIn { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         .animate-pop-in { animation: popIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both; }
         .legend-row { animation: slideUp 0.3s ease both; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
       `}</style>
 
+      {viewMode === 'expert' ? (
+        <ExpertView
+          fullName={fullName}
+          selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth}
+          last6Months={last6Months} incomeLast6Months={incomeLast6Months}
+          cumulativeBalance={cumulativeBalance} netSavings={netSavings}
+          thisMonthIncomeTot={thisMonthIncomeTot} thisMonthTotal={thisMonthTotal} lastMonthTotal={lastMonthTotal}
+          monthOverMonthPct={monthOverMonthPct} spendingRate={spendingRate} avgPerDay={avgPerDay}
+          safeToSpendPerDay={safeToSpendPerDay} savingsRatePct={savingsRatePct} dailySeries={dailySeries}
+          monthlyProgress={monthlyProgress} primaryGoal={primaryGoal}
+          categoryTotals={categoryTotals} weeklyData={weeklyData} maxMonthly={maxMonthly} maxWeekly={maxWeekly}
+          chartView={chartView} setChartView={setChartView}
+          budgets={budgets} budgetSpend={budgetSpend}
+          filteredExpenses={filteredExpenses} activeFilter={activeFilter} setActiveFilter={setActiveFilter}
+          activeTab={activeTab} setActiveTab={setActiveTab}
+          searchQuery={searchQuery} setSearchQuery={setSearchQuery}
+          manageTab={manageTab} setManageTab={setManageTab}
+          poolsThisMonth={poolsThisMonth} billsWithStats={billsWithStats} debtsWithStats={debtsWithStats}
+          savingsGoals={savingsGoals} expensePools={expensePools} splitBills={splitBills} debts={debts}
+          setShowAddExpense={setShowAddExpense} setShowAddIncome={setShowAddIncome} setShowAddBill={setShowAddBill}
+          setShowSimulator={setShowSimulator} setShowSettings={setShowSettings}
+          setEditingExpense={setEditingExpense} setDeletingExpense={setDeletingExpense}
+          setOpenPool={setOpenPool} setLoggingPool={setLoggingPool}
+          setOpenSplitBill={setOpenSplitBill} setOpenDebt={setOpenDebt} setLoggingDebt={setLoggingDebt}
+          setOpenGoal={setOpenGoal}
+          setShowAddPool={setShowAddPool} setShowAddSplitBill={setShowAddSplitBill}
+          setShowAddDebt={setShowAddDebt} setShowAddGoal={setShowAddGoal}
+          onLogout={handleLogout}
+        />
+      ) : (
       <div className="min-h-screen bg-white">
         {/* ── Sticky Top Bar ── */}
         <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-100">
@@ -3173,6 +3845,10 @@ export default function Dashboard() {
                 className="flex items-center gap-1.5 bg-black hover:bg-gray-800 active:scale-[.98] text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all">
                 <ArrowDownCircle size={14} /> Expenses
               </button>
+              <button onClick={() => setShowSettings(true)} title="Settings"
+                className="flex items-center border border-gray-200 hover:border-black hover:bg-gray-50 active:scale-[.98] text-gray-600 hover:text-black p-1.5 rounded-lg transition-all">
+                <Settings size={15} />
+              </button>
               <button onClick={handleLogout}
                 className="flex items-center border border-gray-200 hover:border-black hover:bg-gray-50 active:scale-[.98] text-gray-600 hover:text-black p-1.5 rounded-lg transition-all">
                 <LogOut size={15} />
@@ -3195,6 +3871,7 @@ export default function Dashboard() {
                     <button onClick={() => { setShowAddExpense(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><ArrowDownCircle size={14} /> Add Expense</button>
                     <button onClick={() => { setShowAddBill(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><CreditCard size={14} className="text-blue-500" /> Add Bill</button>
                     <button onClick={() => { setShowSimulator(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><Calculator size={14} className="text-purple-500" /> Budget Simulator</button>
+                    <button onClick={() => { setShowSettings(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><Settings size={14} className="text-gray-500" /> Settings</button>
                     <div className="h-px bg-gray-100 my-1" />
                     <button onClick={() => { handleLogout(); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-red-500 hover:bg-red-50"><LogOut size={14} /> Logout</button>
                   </div>
@@ -4042,6 +4719,9 @@ export default function Dashboard() {
 
         </div>
       </div>
+      )}
+
+      {showSettings && <SettingsModal value={viewMode} onChange={changeView} onClose={() => setShowSettings(false)} />}
 
       {/* Modals */}
       {showAddExpense  && <AddExpenseModal  onClose={() => setShowAddExpense(false)}  onSave={handleAddExpense} />}
