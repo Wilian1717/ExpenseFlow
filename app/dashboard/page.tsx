@@ -146,6 +146,12 @@ function currentMonth() {
   const d = new Date()
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
 }
+function daysLeftInMonth(monthIso: string): number | null {
+  if (monthIso !== currentMonth()) return null
+  const now = new Date()
+  const end = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+  return end.getDate() - now.getDate()
+}
 function getMonthLabelFull(iso: string) {
   const [year, month] = iso.split('-')
   return `${MONTHS[parseInt(month) - 1]} ${year}`
@@ -1224,7 +1230,7 @@ function LogPoolEntryModal({ pool, remaining, onClose, onSave }: {
         </div>
         <div className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg ${cfg.bg} ${cfg.text} text-xs font-medium mb-4`}>
           {cfg.icon}
-          {remaining >= 0 ? `${fmtShort(remaining)} remaining` : `${fmtShort(Math.abs(remaining))} over budget`}
+          {remaining >= 0 ? `${fmt(remaining)} remaining` : `${fmt(Math.abs(remaining))} over budget`}
         </div>
         <div className="space-y-3">
           <div>
@@ -1243,7 +1249,7 @@ function LogPoolEntryModal({ pool, remaining, onClose, onSave }: {
           </div>
           {amount && parseFloat(amount) > 0 && (
             <div className="bg-gray-50 rounded-lg px-3 py-2">
-              <p className="text-xs text-gray-500">After logging: <span className={`font-medium ${afterRemaining < 0 ? 'text-red-600' : 'text-black'}`}>{fmtShort(Math.abs(afterRemaining))} {afterRemaining < 0 ? 'over budget' : 'remaining'}</span></p>
+              <p className="text-xs text-gray-500">After logging: <span className={`font-medium ${afterRemaining < 0 ? 'text-red-600' : 'text-black'}`}>{fmt(Math.abs(afterRemaining))} {afterRemaining < 0 ? 'over budget' : 'remaining'}</span></p>
             </div>
           )}
         </div>
@@ -1281,6 +1287,7 @@ function PoolDetailModal({ stats, selectedMonth, onClose, onLogEntry, onDeleteEn
   const over = spent > pool.budget_amount
   const warn = !over && pct >= 80
   const cfg  = CATEGORY_CONFIG[pool.category]
+  const days = daysLeftInMonth(selectedMonth)
 
   const handleDeleteEntry = async (entry: ExpensePoolEntry) => {
     setDeletingId(entry.id); await onDeleteEntry(entry); setDeletingId(null)
@@ -1299,19 +1306,20 @@ function PoolDetailModal({ stats, selectedMonth, onClose, onLogEntry, onDeleteEn
         <div className="flex items-start justify-between p-5 pb-3 border-b border-gray-100">
           <div className="flex-1 min-w-0 mr-3">
             <p className="text-base font-medium text-black truncate">{pool.title}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{fmtShort(spent)} of {fmtShort(pool.budget_amount)} used · {getMonthLabelFull(selectedMonth)}</p>
+            <p className="text-xs text-gray-400 mt-0.5">{fmt(spent)} of {fmt(pool.budget_amount)} used · {getMonthLabelFull(selectedMonth)}</p>
           </div>
           <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all shrink-0"><X size={16} /></button>
         </div>
         <div className="px-5 pt-3 pb-0">
           <div className="bg-gray-100 rounded-full h-2.5 overflow-hidden mb-1">
-            <div className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-red-500' : warn ? 'bg-amber-500' : 'bg-black'}`} style={{ width: `${pct}%` }} />
+            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: over ? '#ef4444' : warn ? '#f59e0b' : CATEGORY_COLOR[pool.category] }} />
           </div>
-          <div className="flex justify-between">
-            <span className={`text-xs ${over ? 'text-red-500' : warn ? 'text-amber-500' : 'text-gray-400'}`}>{pct.toFixed(0)}% used</span>
-            {over ? <span className="text-xs text-red-500 font-medium">Over by {fmtShort(spent - pool.budget_amount)}</span>
-                  : <span className="text-xs text-gray-400">{fmtShort(remaining)} remaining</span>}
+          <div className="flex items-center justify-between gap-2">
+            <span className={`text-xs shrink-0 ${over ? 'text-red-500' : warn ? 'text-amber-500' : 'text-gray-400'}`}>{pct.toFixed(0)}% used</span>
+            {over ? <span className="text-xs text-red-500 font-medium text-right">Over by {fmt(spent - pool.budget_amount)}</span>
+                  : <span className="text-xs text-gray-400 text-right">{fmt(remaining)} remaining</span>}
           </div>
+          {days !== null && <p className="text-[10px] text-gray-300 mt-0.5 text-right">{days}d left in the month</p>}
         </div>
         <div className="flex gap-1 mx-5 mt-3 bg-gray-100 p-1 rounded-lg">
           {(['overview', 'history', 'edit'] as const).map(t => (
@@ -1327,19 +1335,19 @@ function PoolDetailModal({ stats, selectedMonth, onClose, onLogEntry, onDeleteEn
               <div className="grid grid-cols-2 gap-2">
                 <div className="bg-gray-50 rounded-xl px-3 py-2.5">
                   <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Budget</p>
-                  <p className="text-sm font-semibold text-black">{fmtShort(pool.budget_amount)}</p>
+                  <p className="text-sm font-semibold text-black">{fmt(pool.budget_amount)}</p>
                   <p className="text-[10px] text-gray-400">per month</p>
                 </div>
                 <div className={`rounded-xl px-3 py-2.5 ${over ? 'bg-red-50' : 'bg-gray-50'}`}>
                   <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Remaining</p>
-                  <p className={`text-sm font-semibold ${over ? 'text-red-600' : 'text-black'}`}>{fmtShort(Math.abs(remaining))}</p>
+                  <p className={`text-sm font-semibold ${over ? 'text-red-600' : 'text-black'}`}>{fmt(Math.abs(remaining))}</p>
                   <p className={`text-[10px] ${over ? 'text-red-400' : 'text-gray-400'}`}>{over ? 'over budget' : 'left'}</p>
                 </div>
               </div>
               <div className="bg-gray-50 rounded-xl px-3 py-2.5 flex justify-between items-center">
                 <div>
                   <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Total used</p>
-                  <p className="text-sm font-semibold text-black">{fmtShort(spent)}</p>
+                  <p className="text-sm font-semibold text-black">{fmt(spent)}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">Entries</p>
@@ -1350,6 +1358,7 @@ function PoolDetailModal({ stats, selectedMonth, onClose, onLogEntry, onDeleteEn
                 {cfg.icon} {cfg.label}
               </div>
               {pool.note && <p className="text-xs text-gray-400 italic">{pool.note}</p>}
+              {spent === 0 && <p className="text-xs text-gray-400 italic">You haven't logged anything for this budget yet.</p>}
               <button onClick={onOpenLog}
                 className="w-full bg-black text-white rounded-lg py-2.5 text-sm font-medium hover:bg-gray-800 active:scale-[.98] transition-all flex items-center justify-center gap-2">
                 <Plus size={14} /> Log daily usage
@@ -1617,7 +1626,9 @@ function SplitBillDetailModal({ stats, onClose, onTogglePaid, onAddParticipant, 
   const [deleting, setDeleting]     = useState(false)
 
   const cfg = CATEGORY_CONFIG[bill.category]
-  const pct = bill.total_amount > 0 ? Math.min((collected / bill.total_amount) * 100, 100) : 0
+  const totalOwed = owed + collected
+  const pct = totalOwed > 0 ? Math.min((collected / totalOwed) * 100, 100) : 0
+  const myShare = Math.max(bill.total_amount - totalOwed, 0)
 
   const handleToggle = async (p: SplitBillParticipant) => { setTogglingId(p.id); await onTogglePaid(p); setTogglingId(null) }
   const handleAdd = async () => {
@@ -1639,7 +1650,10 @@ function SplitBillDetailModal({ stats, onClose, onTogglePaid, onAddParticipant, 
         <div className="flex items-start justify-between p-5 pb-3 border-b border-gray-100">
           <div className="flex-1 min-w-0 mr-3">
             <p className="text-base font-medium text-black truncate">{bill.title}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{fmt(bill.total_amount)} total · {participants.length} {participants.length === 1 ? 'person' : 'people'}</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {fmt(bill.total_amount)} total · {participants.length} {participants.length === 1 ? 'person' : 'people'}
+              {myShare > 0 && <span className="text-gray-300"> · {fmt(myShare)} is your share</span>}
+            </p>
           </div>
           <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all shrink-0"><X size={16} /></button>
         </div>
@@ -1666,10 +1680,9 @@ function SplitBillDetailModal({ stats, onClose, onTogglePaid, onAddParticipant, 
             <div className="space-y-2">
               {participants.map(p => (
                 <div key={p.id} className="flex items-center gap-3 border border-gray-100 rounded-xl px-3 py-2.5 group">
-                  <button onClick={() => handleToggle(p)} disabled={togglingId === p.id}
-                    className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 transition-all ${p.is_paid ? 'bg-emerald-50 text-emerald-600' : `${cfg.bg} ${cfg.text}`}`}>
+                  <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${p.is_paid ? 'bg-emerald-50 text-emerald-600' : `${cfg.bg} ${cfg.text}`}`}>
                     {togglingId === p.id ? <div className="w-3.5 h-3.5 border border-gray-400 border-t-transparent rounded-full animate-spin" /> : p.is_paid ? <Check size={16} /> : <Users size={15} />}
-                  </button>
+                  </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{p.name}</p>
                     <p className={`text-xs ${p.is_paid ? 'text-emerald-500' : 'text-gray-400'}`}>{fmt(p.share_amount)} · {p.is_paid ? 'paid' : 'unpaid'}</p>
@@ -3264,6 +3277,9 @@ export default function Dashboard() {
   useEffect(() => { init() }, [])
   useEffect(() => { setCatSliceSelected(null) }, [selectedMonth])
   useEffect(() => {
+    document.querySelector(`[data-tab="${dashboardTab}"]`)?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' })
+  }, [dashboardTab])
+  useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
     }
@@ -4237,11 +4253,11 @@ export default function Dashboard() {
                   { key: 'income',   label: 'Income',      icon: <ArrowUpCircle size={11} />, count: 0 },
                   { key: 'bills',    label: 'Bills',        icon: <CreditCard size={11} />,    count: billsDueSoon },
                   { key: 'pools',    label: 'Budgets',      icon: null,                        count: expensePools.length },
-                  { key: 'splits',   label: 'Split Bills',  icon: null,                        count: splitBills.length },
+                  { key: 'splits',   label: 'Split Bills',  icon: null,                        count: billsWithStats.filter(b => !b.settled).length },
                   { key: 'owed',     label: 'Debts',        icon: null,                        count: debtsWithStats.filter(d => !d.settled).length },
                   { key: 'goals',    label: 'Goals',        icon: null,                        count: savingsGoals.length },
                 ] as const).map(t => (
-                  <button key={t.key} onClick={() => setDashboardTab(t.key)}
+                  <button key={t.key} data-tab={t.key} onClick={() => setDashboardTab(t.key)}
                     className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${dashboardTab === t.key ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-black'}`}>
                     {t.icon}
                     {t.label}
@@ -4289,6 +4305,7 @@ export default function Dashboard() {
                   const over = spent > pool.budget_amount
                   const warn = !over && pct >= 80
                   const cfg  = CATEGORY_CONFIG[pool.category]
+                  const days = daysLeftInMonth(selectedMonth)
                   return (
                     <div key={pool.id} onClick={() => setOpenPool(pool)}
                       className="border border-gray-100 rounded-xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
@@ -4299,7 +4316,7 @@ export default function Dashboard() {
                           </div>
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-gray-900 truncate">{pool.title}</p>
-                            <p className="text-xs text-gray-400">{fmtShort(pool.budget_amount)} / month</p>
+                            <p className="text-xs text-gray-400">{fmt(pool.budget_amount)} / month</p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
@@ -4315,17 +4332,20 @@ export default function Dashboard() {
                         </div>
                       </div>
                       <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden mb-1.5">
-                        <div className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-red-500' : warn ? 'bg-amber-500' : 'bg-black'}`} style={{ width: `${pct}%` }} />
+                        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: over ? '#ef4444' : warn ? '#f59e0b' : CATEGORY_COLOR[pool.category] }} />
                       </div>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-gray-500">{fmtShort(spent)} used</span>
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        {spent === 0
+                          ? <span className="text-gray-300 italic truncate">Not logged yet this month</span>
+                          : <span className="text-gray-500 truncate">{fmt(spent)} used</span>}
                         {over
-                          ? <span className="text-red-500 font-medium">Over by {fmtShort(spent - pool.budget_amount)}</span>
+                          ? <span className="text-red-500 font-medium text-right shrink-0">Over by {fmt(spent - pool.budget_amount)}</span>
                           : warn
-                          ? <span className="text-amber-500">{fmtShort(remaining)} left · {pct.toFixed(0)}% used</span>
-                          : <span className="text-gray-400">{fmtShort(remaining)} remaining</span>
+                          ? <span className="text-amber-500 text-right shrink-0">{fmt(remaining)} left · {pct.toFixed(0)}% used</span>
+                          : <span className="text-gray-400 text-right shrink-0">{fmt(remaining)} remaining</span>
                         }
                       </div>
+                      {days !== null && <p className="text-[10px] text-gray-300 mt-0.5 text-right">{days}d left in the month</p>}
                     </div>
                   )
                 })}
@@ -4349,7 +4369,9 @@ export default function Dashboard() {
               <div className="flex flex-col gap-2">
                 {billsWithStats.map(({ bill, participants, owed, collected, paidCount, settled }) => {
                   const cfg = CATEGORY_CONFIG[bill.category]
-                  const pct = bill.total_amount > 0 ? Math.min((collected / bill.total_amount) * 100, 100) : 0
+                  const totalOwed = owed + collected
+                  const pct = totalOwed > 0 ? Math.min((collected / totalOwed) * 100, 100) : 0
+                  const myShare = Math.max(bill.total_amount - totalOwed, 0)
                   return (
                     <div key={bill.id} onClick={() => setOpenSplitBill(bill)}
                       className="border border-gray-100 rounded-xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
@@ -4360,7 +4382,10 @@ export default function Dashboard() {
                           </div>
                           <div className="min-w-0">
                             <p className="text-sm font-medium text-gray-900 truncate">{bill.title}</p>
-                            <p className="text-xs text-gray-400">{fmt(bill.total_amount)} · {participants.length} {participants.length === 1 ? 'person' : 'people'}</p>
+                            <p className="text-xs text-gray-400">
+                              {fmt(bill.total_amount)} · {participants.length} {participants.length === 1 ? 'person' : 'people'}
+                              {myShare > 0 && <span className="text-gray-300"> · {fmt(myShare)} is your share</span>}
+                            </p>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 shrink-0">
