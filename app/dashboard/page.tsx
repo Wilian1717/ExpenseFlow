@@ -168,6 +168,12 @@ function localISOString(): string {
   return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
 }
 
+function dateWithCurrentTime(dateStr: string): string {
+  const now = new Date()
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${dateStr}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`
+}
+
 function exportCSV(expenses: Expense[], income: Income[], month: string) {
   const rows: string[] = [
     'Type,Date,Description,Category,Amount,Note',
@@ -771,17 +777,18 @@ function AddBillModal({ onClose, onSave }: {
 
 // ─── Add Expense Modal ────────────────────────────────────────────────────────
 function AddExpenseModal({ onClose, onSave }: {
-  onClose: () => void; onSave: (data: { title: string; amount: number; category: Category; note: string }) => Promise<void>
+  onClose: () => void; onSave: (data: { title: string; amount: number; category: Category; note: string; date: string }) => Promise<void>
 }) {
   const [title, setTitle]       = useState('')
   const [amount, setAmount]     = useState('')
   const [category, setCategory] = useState<Category>('food')
   const [note, setNote]         = useState('')
+  const [date, setDate]         = useState(() => localISOString().slice(0, 10))
   const [saving, setSaving]     = useState(false)
 
   const handleSave = async () => {
     if (!title.trim() || !amount || parseFloat(amount) <= 0) return
-    setSaving(true); await onSave({ title: title.trim(), amount: parseFloat(amount), category, note: note.trim() }); setSaving(false)
+    setSaving(true); await onSave({ title: title.trim(), amount: parseFloat(amount), category, note: note.trim(), date }); setSaving(false)
   }
 
   return (
@@ -817,6 +824,11 @@ function AddExpenseModal({ onClose, onSave }: {
             {amount && !isNaN(parseFloat(amount)) && parseFloat(amount) > 0 && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(parseFloat(amount))}</p>}
           </div>
           <div>
+            <label className="text-xs text-gray-400 mb-1 block">Date</label>
+            <input type="date" value={date} max={localISOString().slice(0, 10)} onChange={e => setDate(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
+          </div>
+          <div>
             <label className="text-xs text-gray-400 mb-1 block">Description</label>
             <input value={title} onChange={e => setTitle(e.target.value)} placeholder="e.g. Lunch, Gas, Groceries..."
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
@@ -847,11 +859,16 @@ function EditExpenseModal({ expense, onClose, onSave }: {
   const [amount, setAmount]     = useState(String(expense.amount))
   const [category, setCategory] = useState<Category>(expense.category)
   const [note, setNote]         = useState(expense.note ?? '')
+  const [date, setDate]         = useState(() => expense.created_at.slice(0, 10))
   const [saving, setSaving]     = useState(false)
 
   const handleSave = async () => {
     if (!title.trim() || !amount) return
-    setSaving(true); await onSave({ title: title.trim(), amount: parseFloat(amount), category, note: note.trim() }); setSaving(false)
+    setSaving(true)
+    const updated: Partial<Expense> = { title: title.trim(), amount: parseFloat(amount), category, note: note.trim() }
+    if (date !== expense.created_at.slice(0, 10)) updated.created_at = dateWithCurrentTime(date)
+    await onSave(updated)
+    setSaving(false)
   }
 
   return (
@@ -885,6 +902,11 @@ function EditExpenseModal({ expense, onClose, onSave }: {
                 className="w-full border border-gray-200 rounded-lg pl-10 pr-3 py-2.5 text-sm text-black focus:outline-none focus:border-black transition font-medium" />
             </div>
             {amount && !isNaN(parseFloat(amount)) && <p className="text-xs text-gray-400 mt-1 pl-1">{fmt(parseFloat(amount))}</p>}
+          </div>
+          <div>
+            <label className="text-xs text-gray-400 mb-1 block">Date</label>
+            <input type="date" value={date} max={localISOString().slice(0, 10)} onChange={e => setDate(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
           </div>
           <div>
             <label className="text-xs text-gray-400 mb-1 block">Description</label>
@@ -3318,9 +3340,10 @@ export default function Dashboard() {
 
   const handleLogout = async () => { await supabase.auth.signOut(); router.push('/login') }
 
-  const handleAddExpense = async (data: { title: string; amount: number; category: Category; note: string }) => {
+  const handleAddExpense = async (data: { title: string; amount: number; category: Category; note: string; date: string }) => {
     const { data: ud } = await supabase.auth.getUser(); const user = ud.user; if (!user) return
-    const { data: inserted, error } = await supabase.from('expenses').insert({ ...data, user_id: user.id, created_at: localISOString() }).select().single()
+    const { date, ...rest } = data
+    const { data: inserted, error } = await supabase.from('expenses').insert({ ...rest, user_id: user.id, created_at: dateWithCurrentTime(date) }).select().single()
     if (!error && inserted) setExpenses(prev => [inserted, ...prev])
     setShowAddExpense(false)
   }
@@ -4215,7 +4238,7 @@ export default function Dashboard() {
                   { key: 'bills',    label: 'Bills',        icon: <CreditCard size={11} />,    count: billsDueSoon },
                   { key: 'pools',    label: 'Budgets',      icon: null,                        count: expensePools.length },
                   { key: 'splits',   label: 'Split Bills',  icon: null,                        count: splitBills.length },
-                  { key: 'owed',     label: 'Debts',        icon: null,                        count: debts.length },
+                  { key: 'owed',     label: 'Debts',        icon: null,                        count: debtsWithStats.filter(d => !d.settled).length },
                   { key: 'goals',    label: 'Goals',        icon: null,                        count: savingsGoals.length },
                 ] as const).map(t => (
                   <button key={t.key} onClick={() => setDashboardTab(t.key)}
