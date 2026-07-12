@@ -11,7 +11,7 @@ import {
   Check, BarChart2, PiggyBank, ArrowUpCircle, Lightbulb, AlertTriangle, Flag,
   Search, User, Menu, ChevronLeft, ChevronRight, History, CreditCard, Undo2,
   Download, SlidersHorizontal, Eye, EyeOff, Calculator, Users, Settings,
-  LayoutGrid, Target, Timer, Info, ArrowRight
+  LayoutGrid, Target, Info, ArrowRight, TrendingUp, TrendingDown
 } from 'lucide-react'
 import {
   Category, SortOrder, Expense, Income, Budget, SavingsGoal,
@@ -288,7 +288,6 @@ function BalanceTrendChart({ series, monthKey, height = 132 }: {
     setHover(Math.max(0, Math.min(n - 1, Math.round(ratio * (n - 1)))))
   }
 
-  const last = series[n - 1]
   const lastPt = pts[n - 1]
   const lineColor = allNegative ? RED : GREEN
 
@@ -1073,67 +1072,71 @@ export default function ExpertView(p: ExpertViewProps) {
                   <CardLabel right={<span title={`Based on ${p.monthlyProgress.basis === 'budget' ? 'your category budgets' : 'this month\'s income'}`} className="text-gray-300 cursor-help"><Info size={14} /></span>}>
                     Monthly progress
                   </CardLabel>
-                  <div className="flex items-center justify-center py-2">
-                    <Ring pct={p.monthlyProgress.pct} size={132} stroke={12}
-                      color={p.monthlyProgress.pct >= 100 ? RED : p.monthlyProgress.pct >= 80 ? '#d97706' : GREEN}>
-                      <span className="text-2xl font-bold leading-none"
-                        style={{ color: p.monthlyProgress.pct >= 100 ? RED : p.monthlyProgress.pct >= 80 ? '#d97706' : '#047857' }}>
-                        {p.monthlyProgress.pct.toFixed(0)}%
-                      </span>
-                      <span className="text-[9px] text-gray-400 mt-1 uppercase tracking-wide">of {p.monthlyProgress.basis}</span>
-                    </Ring>
-                  </div>
-                  <div className="flex items-start justify-between gap-2 mt-3">
-                    <div className="min-w-0">
-                      <p className="text-[11px] text-gray-400">Budget left</p>
-                      <p className="text-sm font-semibold text-black tabular-nums truncate">{fmtFull(p.monthlyProgress.left)}</p>
-                    </div>
-                    <div className="min-w-0 text-right">
-                      <p className="text-[11px] text-gray-400">Daily average</p>
-                      <p className="text-sm font-semibold text-black tabular-nums truncate">{fmtFull(p.avgPerDay)}</p>
-                    </div>
-                  </div>
-                  <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden mt-3">
-                    <div className={`h-full rounded-full transition-all duration-700 ${p.monthlyProgress.pct >= 100 ? 'bg-red-500' : p.monthlyProgress.pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500'}`}
-                      style={{ width: `${p.monthlyProgress.pct}%` }} />
-                  </div>
-                  <p className="text-xs text-gray-400 mt-2">Remaining days: <span className="font-medium text-gray-600">{p.safeToSpendPerDay.isCurrentMonth ? `${p.safeToSpendPerDay.daysLeft} days` : '—'}</span></p>
-                  {p.primaryGoal && (() => {
-                    const gpct = Math.min((p.primaryGoal.current_amount / p.primaryGoal.target_amount) * 100, 100)
+                  {(() => {
+                    const remainingPct = Math.max(100 - p.monthlyProgress.pct, 0)
+                    const color = remainingPct >= 50 ? GREEN : remainingPct >= 20 ? '#d97706' : RED
+                    const barColor = remainingPct >= 50 ? 'bg-emerald-500' : remainingPct >= 20 ? 'bg-amber-500' : 'bg-red-500'
+
+                    // Pace insight: compares % of budget used against % of the month
+                    // that has elapsed, then projects a month-end total from that pace.
+                    const [yr, mo] = p.selectedMonth.split('-').map(Number)
+                    const daysInSelMonth = new Date(yr, mo, 0).getDate()
+                    const now = new Date()
+                    const isCurrentSelMonth = yr === now.getFullYear() && mo === now.getMonth() + 1
+                    const daysElapsed = isCurrentSelMonth ? now.getDate() : daysInSelMonth
+                    const timeElapsedPct = Math.min((daysElapsed / daysInSelMonth) * 100, 100)
+                    const budgetUsedPct = p.monthlyProgress.pct
+                    const paceDelta = budgetUsedPct - timeElapsedPct
+                    const projected = timeElapsedPct > 0 ? (p.monthlyProgress.spent / timeElapsedPct) * 100 : p.monthlyProgress.spent
+
+                    let insight: { icon: React.ReactNode; text: React.ReactNode; bg: string; text_: string }
+                    if (!isCurrentSelMonth) {
+                      insight = { icon: <Info size={13} />, bg: 'bg-gray-50', text_: 'text-gray-600',
+                        text: <>This month is over — you used <span className="font-medium">{budgetUsedPct.toFixed(0)}%</span> of your {p.monthlyProgress.basis}.</> }
+                    } else if (paceDelta > 8) {
+                      const overshoots = projected > p.monthlyProgress.budget
+                      insight = overshoots
+                        ? { icon: <AlertTriangle size={13} />, bg: 'bg-red-50', text_: 'text-red-700',
+                            text: <>You're spending too fast this month — at this rate, you're on track to go over your {p.monthlyProgress.basis}.</> }
+                        : { icon: <TrendingUp size={13} />, bg: 'bg-amber-50', text_: 'text-amber-700',
+                            text: <>You're spending a bit fast this month, but you should still stay within your {p.monthlyProgress.basis}.</> }
+                    } else if (paceDelta < -8) {
+                      insight = { icon: <TrendingDown size={13} />, bg: 'bg-emerald-50', text_: 'text-emerald-700',
+                        text: <>Nice — you're spending less than expected this month. Keep it up!</> }
+                    } else {
+                      insight = { icon: <Info size={13} />, bg: 'bg-blue-50', text_: 'text-blue-700',
+                        text: <>You're right on track — {budgetUsedPct.toFixed(0)}% used with {timeElapsedPct.toFixed(0)}% of the month gone.</> }
+                    }
+
                     return (
-                      <div className="mt-4 pt-3 border-t border-gray-100">
-                        <div className="flex items-center justify-between mb-1.5 gap-2">
-                          <span className="text-xs text-gray-500 truncate">Goal · {p.primaryGoal.title}</span>
-                          <span className="text-xs text-gray-400 tabular-nums shrink-0">{gpct.toFixed(0)}%</span>
+                      <>
+                        <div className="flex items-center justify-center py-2">
+                          <Ring pct={remainingPct} size={176} stroke={15} color={color}>
+                            <span className="text-3xl font-bold leading-none" style={{ color }}>
+                              {remainingPct.toFixed(0)}%
+                            </span>
+                            <span className="text-[10px] text-gray-400 mt-1 uppercase tracking-wide">of {p.monthlyProgress.basis} left</span>
+                          </Ring>
                         </div>
-                        <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                          <div className="h-full bg-black rounded-full transition-all duration-700" style={{ width: `${gpct}%` }} />
+                        <div className="mt-3">
+                          <p className="text-[11px] text-gray-400">Budget left</p>
+                          <p className="text-sm font-semibold text-black tabular-nums truncate">{fmtFull(p.monthlyProgress.left)}</p>
                         </div>
-                      </div>
+                        <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden mt-3">
+                          <div className={`h-full rounded-full transition-all duration-700 ${barColor}`} style={{ width: `${remainingPct}%` }} />
+                        </div>
+                        <div className={`flex items-start gap-2 rounded-lg px-3 py-2.5 mt-3 ${insight.bg}`}>
+                          <span className={`mt-0.5 shrink-0 ${insight.text_}`}>{insight.icon}</span>
+                          <p className={`text-xs leading-relaxed ${insight.text_}`}>{insight.text}</p>
+                        </div>
+                      </>
                     )
                   })()}
                 </Card>
               </div>
 
               {/* Row 2: Stat cards */}
-              <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 sm:gap-4 mb-4">
-                <div className="stat-card bg-white border border-gray-100 rounded-2xl p-4 flex flex-col">
-                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Income</p>
-                  <p className="text-lg sm:text-xl font-semibold text-black mt-1.5 tabular-nums tracking-tight truncate">{fmtFull(p.thisMonthIncomeTot)}</p>
-                  <div className="h-9 mt-auto pt-2"><Sparkline data={p.incomeLast6Months.map(m => m.total)} height={36} stroke={GREEN} labels={monthLabels} format={v => fmtFull(v)} /></div>
-                </div>
-                <div className="stat-card bg-white border border-gray-100 rounded-2xl p-4 flex flex-col">
-                  <div className="flex items-center justify-between gap-1">
-                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Expenses</p>
-                    {p.lastMonthTotal > 0 && (
-                      <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${p.monthOverMonthPct > 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'}`}>
-                        {p.monthOverMonthPct > 0 ? '↑' : '↓'} {Math.abs(p.monthOverMonthPct).toFixed(0)}%
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-lg sm:text-xl font-semibold text-black mt-1.5 tabular-nums tracking-tight truncate">{fmtFull(p.thisMonthTotal)}</p>
-                  <div className="h-9 mt-auto pt-2"><Sparkline data={p.last6Months.map(m => m.total)} height={36} stroke={RED} labels={monthLabels} format={v => fmtFull(v)} /></div>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4">
                 <div className="stat-card bg-white border border-gray-100 rounded-2xl p-4 flex flex-col">
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Spending rate</p>
                   <p className="text-lg sm:text-xl font-semibold text-black mt-1.5 tabular-nums tracking-tight">{p.thisMonthIncomeTot > 0 ? `${p.spendingRate.toFixed(0)}%` : '—'}</p>
@@ -1145,14 +1148,43 @@ export default function ExpertView(p: ExpertViewProps) {
                     <p className="text-[10px] text-gray-400 mt-1.5">{p.thisMonthIncomeTot > 0 ? 'of income used' : 'add income first'}</p>
                   </div>
                 </div>
-                <div className="stat-card bg-white border border-blue-100 rounded-2xl p-4 relative overflow-hidden flex flex-col">
-                  <p className="text-xs font-semibold text-blue-600 uppercase tracking-wide">Safe to spend</p>
-                  <p className="text-lg sm:text-xl font-semibold text-black mt-1.5 tabular-nums tracking-tight truncate">
-                    {p.safeToSpendPerDay.isCurrentMonth ? <>{fmtFull(p.safeToSpendPerDay.perDay)}<span className="text-xs font-normal text-gray-400">/day</span></> : '—'}
-                  </p>
-                  <p className="flex items-center gap-1 text-[10px] font-semibold text-blue-600 uppercase tracking-wide mt-auto pt-2">
-                    <Timer size={11} /> {p.safeToSpendPerDay.isCurrentMonth ? `${p.safeToSpendPerDay.daysLeft}d left in period` : 'Period ended'}
-                  </p>
+
+                <div className="stat-card bg-white border border-gray-100 rounded-2xl p-4 flex flex-col">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Biggest expense</p>
+                  {largestExpense ? (
+                    <>
+                      <p className="text-lg sm:text-xl font-semibold text-black mt-1.5 tabular-nums tracking-tight truncate">{fmtFull(largestExpense.amount)}</p>
+                      <div className="flex items-center gap-2 mt-auto pt-2 min-w-0">
+                        <CatIcon category={largestExpense.category} size={24} />
+                        <span className="text-xs text-gray-500 truncate">{largestExpense.title}</span>
+                      </div>
+                    </>
+                  ) : (
+                    <p className="text-sm text-gray-300 mt-auto pt-2">No expenses yet</p>
+                  )}
+                </div>
+
+                <div className="stat-card bg-white border border-gray-100 rounded-2xl p-4 flex flex-col">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Top category</p>
+                  {topCategory ? (() => {
+                    const catPct = p.thisMonthTotal > 0 ? ((p.categoryTotals[topCategory] || 0) / p.thisMonthTotal) * 100 : 0
+                    return (
+                      <>
+                        <div className="flex items-center gap-2 mt-1.5 min-w-0">
+                          <CatIcon category={topCategory} size={24} />
+                          <span className="text-lg sm:text-xl font-semibold text-black tracking-tight truncate">{CATEGORY_CONFIG[topCategory].label.split(' ')[0]}</span>
+                        </div>
+                        <div className="mt-auto pt-2">
+                          <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${catPct}%`, background: CATEGORY_COLOR[topCategory] }} />
+                          </div>
+                          <p className="text-[10px] text-gray-400 mt-1.5">{catPct.toFixed(0)}% of this month's spend</p>
+                        </div>
+                      </>
+                    )
+                  })() : (
+                    <p className="text-sm text-gray-300 mt-auto pt-2">No spending yet</p>
+                  )}
                 </div>
               </div>
 
