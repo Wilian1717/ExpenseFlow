@@ -2796,15 +2796,33 @@ export default function Dashboard() {
   }, [thisMonthExpenses])
 
   // ── Expert-view derived data (real numbers, no placeholders) ──
-  // Cumulative spend per day across the selected month → drives sparklines / area chart
-  const dailySeries = useMemo(() => {
+  // Running account balance per day across the selected month: starts at the
+  // balance the account actually had on day 1 (all prior income − all prior
+  // expenses), then walks forward applying that day's real income/expenses.
+  const dailyBalanceSeries = useMemo(() => {
     const [yr, mo] = selectedMonth.split('-').map(Number)
+    const monthStart = new Date(yr, mo - 1, 1)
     const daysInMonth = new Date(yr, mo, 0).getDate()
-    const perDay = new Array(daysInMonth).fill(0)
-    thisMonthExpenses.forEach(e => { const d = new Date(e.created_at).getDate(); if (d >= 1 && d <= daysInMonth) perDay[d - 1] += e.amount })
-    let run = 0
-    return perDay.map(v => (run += v)) // cumulative spend
-  }, [thisMonthExpenses, selectedMonth])
+    const now = new Date()
+    const isCurrentMonth = yr === now.getFullYear() && mo === now.getMonth() + 1
+    const lastDay = isCurrentMonth ? now.getDate() : daysInMonth
+
+    const startBalance =
+      income.filter(i => new Date(i.created_at) < monthStart).reduce((s, i) => s + i.amount, 0) -
+      expenses.filter(e => new Date(e.created_at) < monthStart).reduce((s, e) => s + e.amount, 0)
+
+    const netPerDay = new Array(daysInMonth).fill(0)
+    thisMonthIncome.forEach(i => { const d = new Date(i.created_at).getDate(); if (d >= 1 && d <= daysInMonth) netPerDay[d - 1] += i.amount })
+    thisMonthExpenses.forEach(e => { const d = new Date(e.created_at).getDate(); if (d >= 1 && d <= daysInMonth) netPerDay[d - 1] -= e.amount })
+
+    let running = startBalance
+    const series: { day: number; balance: number }[] = []
+    for (let d = 1; d <= lastDay; d++) {
+      running += netPerDay[d - 1]
+      series.push({ day: d, balance: running })
+    }
+    return series
+  }, [thisMonthIncome, thisMonthExpenses, income, expenses, selectedMonth])
 
   // Per-month income totals for the last 6 months (mirror of last6Months)
   const incomeLast6Months = useMemo(() => {
@@ -2909,7 +2927,7 @@ export default function Dashboard() {
           cumulativeBalance={cumulativeBalance} netSavings={netSavings}
           thisMonthIncomeTot={thisMonthIncomeTot} thisMonthTotal={thisMonthTotal} lastMonthTotal={lastMonthTotal}
           monthOverMonthPct={monthOverMonthPct} spendingRate={spendingRate} avgPerDay={avgPerDay}
-          safeToSpendPerDay={safeToSpendPerDay} savingsRatePct={savingsRatePct} dailySeries={dailySeries}
+          safeToSpendPerDay={safeToSpendPerDay} savingsRatePct={savingsRatePct} dailyBalanceSeries={dailyBalanceSeries}
           monthlyProgress={monthlyProgress} primaryGoal={primaryGoal}
           categoryTotals={categoryTotals} weeklyData={weeklyData} maxMonthly={maxMonthly} maxWeekly={maxWeekly}
           chartView={chartView} setChartView={setChartView}

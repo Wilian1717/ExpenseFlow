@@ -5,7 +5,7 @@
 // sections: Dashboard · Expenses · Income · Bills · Budgets · Goals ·
 // Splits & Debts · Reports. All data/handlers come from page.tsx via props.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useState } from 'react'
 import {
   Plus, LogOut, Wallet, Receipt, Pencil, Trash2, X,
   Check, BarChart2, PiggyBank, ArrowUpCircle, Lightbulb, AlertTriangle, Flag,
@@ -221,6 +221,138 @@ function Donut({ categoryTotals, total }: {
           </div>
         ))}
         {slices.length > 6 && <span className="text-[10px] text-gray-300 px-1">+{slices.length - 6} more</span>}
+      </div>
+    </div>
+  )
+}
+
+// Running account-balance line for the selected month — real Y-axis (full Rupiah
+// labels), adaptive day ticks, hover crosshair, and a diverging green/red fill
+// that only kicks in if the balance actually dips below zero that month.
+// Rounds an axis range to clean, human-friendly step sizes (1/2/5 × a power of
+// ten) so labels read like "Rp 5.000.000" instead of an arbitrary "Rp 4.047.570".
+function niceAxisTicks(min: number, max: number, targetCount = 4) {
+  if (min === max) { min -= 1; max += 1 }
+  const range = max - min
+  const rawStep = range / (targetCount - 1)
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rawStep)))
+  const normalized = rawStep / magnitude
+  const niceNormalized = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10
+  const step = niceNormalized * magnitude
+  const niceMin = Math.floor(min / step) * step
+  const niceMax = Math.ceil(max / step) * step
+  const ticks: number[] = []
+  for (let v = niceMin; v <= niceMax + step * 0.5; v += step) ticks.push(v)
+  return { ticks, niceMin, niceMax }
+}
+
+function BalanceTrendChart({ series, monthKey, height = 132 }: {
+  series: { day: number; balance: number }[]; monthKey: string; height?: number
+}) {
+  const [hover, setHover] = useState<number | null>(null)
+  const gradId = useId(), clipTopId = useId(), clipBottomId = useId()
+
+  if (!series || series.length === 0) {
+    return <p className="text-xs text-gray-300 text-center py-10">No activity yet this month</p>
+  }
+
+  const n = series.length
+  const balances = series.map(s => s.balance)
+  const rawMin = Math.min(...balances)
+  const rawMax = Math.max(...balances)
+  const { ticks: yTicks, niceMin: domainMin, niceMax: domainMax } = niceAxisTicks(rawMin, rawMax, 4)
+  const crossesZero = rawMin < 0 && rawMax > 0
+  const allNegative = rawMax <= 0
+
+  const w = 100, h = height
+  const xOf = (i: number) => n === 1 ? 0 : (i / (n - 1)) * w
+  const yOf = (v: number) => h - ((v - domainMin) / (domainMax - domainMin || 1)) * h
+  const zeroY = crossesZero ? yOf(0) : allNegative ? 0 : h
+
+  const pts = series.map((s, i) => [xOf(i), yOf(s.balance)] as const)
+  let line = `M${pts[0][0].toFixed(2)},${pts[0][1].toFixed(2)}`
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i], p1 = pts[i], p2 = pts[i + 1], p3 = pts[i + 2] ?? p2
+    const c1x = p1[0] + (p2[0] - p0[0]) / 6, c1y = p1[1] + (p2[1] - p0[1]) / 6
+    const c2x = p2[0] - (p3[0] - p1[0]) / 6, c2y = p2[1] - (p3[1] - p1[1]) / 6
+    line += ` C${c1x.toFixed(2)},${c1y.toFixed(2)} ${c2x.toFixed(2)},${c2y.toFixed(2)} ${p2[0].toFixed(2)},${p2[1].toFixed(2)}`
+  }
+  const area = `${line} L${w},${zeroY.toFixed(2)} L0,${zeroY.toFixed(2)} Z`
+
+  const [yr, mo] = monthKey.split('-').map(Number)
+  const dateLabel = (day: number) => new Date(yr, mo - 1, day).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+
+  const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const ratio = (e.clientX - rect.left) / rect.width
+    setHover(Math.max(0, Math.min(n - 1, Math.round(ratio * (n - 1)))))
+  }
+
+  const last = series[n - 1]
+  const lastPt = pts[n - 1]
+  const lineColor = allNegative ? RED : GREEN
+
+  return (
+    <div className="w-full">
+      <div className="flex gap-2.5">
+        <div className="flex flex-col justify-between text-right shrink-0 py-0.5 w-14 sm:w-[70px]" style={{ height }}>
+          {[...yTicks].reverse().map((t, i) => (
+            <span key={i} className="text-[9px] sm:text-[10px] text-gray-400 tabular-nums leading-none whitespace-nowrap">{fmtFull(t)}</span>
+          ))}
+        </div>
+        <div className="relative flex-1 min-w-0" style={{ height }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+          <div className="absolute inset-0 flex flex-col justify-between pointer-events-none">
+            {yTicks.map((_, i) => <div key={i} className="border-t border-gray-100" />)}
+          </div>
+          <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="w-full absolute inset-0" style={{ height }}>
+            <defs>
+              <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={lineColor} stopOpacity="0.18" />
+                <stop offset="100%" stopColor={lineColor} stopOpacity="0" />
+              </linearGradient>
+              {crossesZero && (
+                <>
+                  <clipPath id={clipTopId}><rect x="0" y="0" width={w} height={Math.max(zeroY, 0)} /></clipPath>
+                  <clipPath id={clipBottomId}><rect x="0" y={zeroY} width={w} height={Math.max(h - zeroY, 0)} /></clipPath>
+                </>
+              )}
+            </defs>
+            {crossesZero ? (
+              <>
+                <path d={area} fill={GREEN} fillOpacity={0.14} clipPath={`url(#${clipTopId})`} />
+                <path d={area} fill={RED} fillOpacity={0.12} clipPath={`url(#${clipBottomId})`} />
+                <line x1="0" y1={zeroY} x2={w} y2={zeroY} stroke="#9ca3af" strokeWidth={0.7} vectorEffect="non-scaling-stroke" />
+              </>
+            ) : (
+              <path d={area} fill={`url(#${gradId})`} />
+            )}
+            <path d={line} fill="none" stroke={lineColor} strokeWidth={1.8} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+            {hover !== null && (
+              <line x1={pts[hover][0]} y1={0} x2={pts[hover][0]} y2={h} stroke="#111827" strokeOpacity={0.15} strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
+            )}
+          </svg>
+          {/* Dot markers as real HTML elements — the SVG above is stretched non-uniformly
+              (preserveAspectRatio="none"), which would turn <circle> fills into ovals. */}
+          <div className="absolute inset-0 pointer-events-none">
+            {pts.map((pt, i) => (
+              <div key={i} className="hidden sm:block absolute w-1 h-1 rounded-full opacity-60"
+                style={{ left: `${pt[0]}%`, top: `${(pt[1] / h) * 100}%`, transform: 'translate(-50%, -50%)', background: lineColor }} />
+            ))}
+            {hover !== null ? (
+              <div className="absolute w-2.5 h-2.5 rounded-full ring-2 ring-white"
+                style={{ left: `${pts[hover][0]}%`, top: `${(pts[hover][1] / h) * 100}%`, transform: 'translate(-50%, -50%)', background: '#111827' }} />
+            ) : (
+              <div className="absolute w-2.5 h-2.5 rounded-full ring-2 ring-white"
+                style={{ left: `${lastPt[0]}%`, top: `${(lastPt[1] / h) * 100}%`, transform: 'translate(-50%, -50%)', background: lineColor }} />
+            )}
+          </div>
+          {hover !== null && (
+            <div className="absolute -top-8 px-2 py-1 rounded-md bg-black text-white text-[11px] font-medium whitespace-nowrap pointer-events-none -translate-x-1/2 z-10"
+              style={{ left: `${Math.min(Math.max(pts[hover][0], 14), 86)}%` }}>
+              {dateLabel(series[hover].day)} · {fmtFull(series[hover].balance)}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )
@@ -527,7 +659,7 @@ export interface ExpertViewProps {
   monthOverMonthPct: number; spendingRate: number; avgPerDay: number
   safeToSpendPerDay: { perDay: number; daysLeft: number; isCurrentMonth: boolean }
   savingsRatePct: number
-  dailySeries: number[]
+  dailyBalanceSeries: { day: number; balance: number }[]
   monthlyProgress: { budget: number; spent: number; pct: number; left: number; basis: 'budget' | 'income' }
   primaryGoal: SavingsGoal | null
   categoryTotals: Partial<Record<Category, number>>
@@ -864,10 +996,6 @@ export default function ExpertView(p: ExpertViewProps) {
                 className="flex items-center gap-1.5 h-9 bg-black text-white text-sm font-medium px-3.5 rounded-xl hover:bg-gray-800 transition-all shadow-sm">
                 <Plus size={15} /> <span className="hidden sm:inline">New Expense</span>
               </button>
-              <button onClick={() => p.setShowSettings(true)}
-                className="w-9 h-9 rounded-xl border border-gray-200 bg-white flex items-center justify-center text-gray-500 hover:text-black hover:border-black transition-all shrink-0">
-                <Settings size={16} />
-              </button>
             </div>
           </div>
           {/* Mobile search row */}
@@ -887,7 +1015,7 @@ export default function ExpertView(p: ExpertViewProps) {
           {section === 'dashboard' && (
             <>
               <div className="mb-6">
-                <h1 className="text-2xl sm:text-3xl font-semibold text-black tracking-tight">{greeting}, {p.fullName || 'there'}</h1>
+                <h1 className="text-2xl sm:text-3xl font-medium text-black tracking-tight">{greeting}, {p.fullName || 'there'}</h1>
                 <p className="text-sm text-gray-500 mt-1.5">{greetingSub}</p>
               </div>
 
@@ -903,26 +1031,35 @@ export default function ExpertView(p: ExpertViewProps) {
                           {p.showTotalBalance ? <EyeOff size={13} /> : <Eye size={13} />}
                         </button>
                       </div>
-                      <p className={`text-4xl sm:text-5xl font-bold tracking-tight mt-2 ${p.cumulativeBalance >= 0 ? 'text-black' : 'text-red-600'}`}>
-                        {p.showTotalBalance
-                          ? fmtFull(Math.abs(p.cumulativeBalance))
-                          : <span className="tracking-widest text-gray-200 select-none">••••••••</span>}
-                      </p>
+                      <div className="h-9 sm:h-10 flex items-center mt-2">
+                        {p.showTotalBalance ? (
+                          <p className={`text-xl sm:text-2xl font-medium tracking-tight ${p.cumulativeBalance >= 0 ? 'text-black' : 'text-red-600'}`}>
+                            {fmtFull(Math.abs(p.cumulativeBalance))}
+                          </p>
+                        ) : (
+                          <div className="flex items-center gap-1.5">
+                            {Array.from({ length: 6 }).map((_, i) => (
+                              <span key={i} className="w-2.5 h-2.5 sm:w-3 sm:h-3 rounded-full bg-gray-200 inline-block" />
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       {p.showTotalBalance && p.cumulativeBalance < 0 && <p className="text-xs text-red-400 mt-1.5">All-time deficit</p>}
                     </div>
                     <span className={`text-xs font-medium px-2.5 py-1 rounded-lg shrink-0 ${p.netSavings >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
                       {p.netSavings >= 0 ? '↑' : '↓'} {Math.abs(p.savingsRatePct).toFixed(0)}% saved
                     </span>
                   </div>
-                  <div className="flex-1 flex flex-col justify-end my-4 min-h-[120px]">
-                    <Sparkline data={p.dailySeries.length ? p.dailySeries : [0, 0]} stroke={GREEN} height={120} format={v => fmtFull(v)} />
+                  <div className="flex-1 flex flex-col justify-center mt-2">
+                    <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wide mb-2">Daily balance status</p>
+                    <BalanceTrendChart series={p.dailyBalanceSeries} monthKey={p.selectedMonth} height={168} />
                   </div>
-                  <div className="mt-auto grid grid-cols-2 sm:grid-cols-4 gap-y-3 pt-4 border-t border-gray-100 sm:divide-x sm:divide-gray-100">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-y-3 pt-4 border-t border-gray-100 sm:divide-x sm:divide-gray-100">
                     {[
                       { l: 'Income', v: fmtFull(p.thisMonthIncomeTot), c: 'text-emerald-700' },
                       { l: 'Expenses', v: fmtFull(p.thisMonthTotal), c: 'text-red-600' },
-                      { l: 'Savings', v: fmtFull(Math.max(p.netSavings, 0)), c: 'text-gray-900' },
-                      { l: 'Balance', v: fmtFull(p.cumulativeBalance), c: 'text-gray-900' },
+                      { l: 'Transactions', v: String(monthExpenses.length), c: 'text-gray-900' },
+                      { l: 'Avg/transaction', v: monthExpenses.length ? fmtFull(p.thisMonthTotal / monthExpenses.length) : '—', c: 'text-gray-900' },
                     ].map((s, i) => (
                       <div key={s.l} className={`min-w-0 ${i > 0 ? 'sm:pl-4' : ''}`}>
                         <p className="text-[11px] text-gray-400">{s.l}</p>
