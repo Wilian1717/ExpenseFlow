@@ -1615,7 +1615,7 @@ export default function Home() {
           </p>
 
           <div className="hero-actions">
-            <button className="btn btn-black btn-xl" onClick={() => router.push('/register')}>
+            <button className="btn btn-black btn-lg" onClick={() => router.push('/register')}>
               Start tracking free →
             </button>
             <button
