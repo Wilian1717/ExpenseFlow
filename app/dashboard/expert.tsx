@@ -11,19 +11,20 @@ import {
   Check, BarChart2, PiggyBank, ArrowUpCircle, Lightbulb, AlertTriangle, Flag,
   Search, User, Menu, ChevronLeft, ChevronRight, History, CreditCard, Undo2,
   Download, SlidersHorizontal, Eye, EyeOff, Calculator, Users, Settings,
-  LayoutGrid, Target, Info, ArrowRight, TrendingUp, TrendingDown
+  LayoutGrid, Target, Info, ArrowRight, TrendingUp, TrendingDown, CalendarDays
 } from 'lucide-react'
 import {
   Category, SortOrder, Expense, Income, Budget, SavingsGoal,
   RecurringExpense, ExpensePool, ExpensePoolWithStats, SplitBill,
   SplitBillWithStats, Debt, DebtWithStats,
   CATEGORY_CONFIG, CATEGORY_COLOR, INCOME_CONFIG, FREQ_LABELS,
+  DailySpendData, DowStat, DailyRecords,
   fmtFull, inMonth, daysLeftInMonth, getMonthLabelFull, exportCSV,
   RowMenu, MonthPickerDropdown, SmartInsightsContent, Sparkline, Ring, CatIcon,
-  scrollHorizontally
+  scrollHorizontally, monthlyEquivalent, SpendingHeatmap, WeekdayBars, HEAT_COLORS
 } from './shared'
 
-type Section = 'dashboard' | 'expenses' | 'income' | 'bills' | 'budgets' | 'goals' | 'shared' | 'reports'
+type Section = 'dashboard' | 'daily' | 'expenses' | 'income' | 'bills' | 'budgets' | 'goals' | 'shared' | 'reports'
 
 const GREEN = '#059669', RED = '#dc2626', BLUE = '#2563eb'
 
@@ -31,6 +32,11 @@ const btnPrimary = 'flex items-center gap-1.5 bg-black text-white text-sm font-m
 const btnOutline = 'flex items-center gap-1.5 border border-gray-200 bg-white text-gray-600 hover:text-black hover:border-black text-sm font-medium px-3.5 py-2 rounded-xl active:scale-[.98] transition-all'
 
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+// Build the date locally from a 'YYYY-MM' key + day — never parse a string.
+const dateLabelOf = (monthKey: string, day: number) => {
+  const [yr, mo] = monthKey.split('-').map(Number)
+  return new Date(yr, mo - 1, day).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
 
 // ─── Small building blocks ────────────────────────────────────────────────────
 
@@ -659,6 +665,10 @@ export interface ExpertViewProps {
   safeToSpendPerDay: { perDay: number; daysLeft: number; isCurrentMonth: boolean }
   savingsRatePct: number
   dailyBalanceSeries: { day: number; balance: number }[]
+  dailySpend: DailySpendData
+  dowStats: DowStat[]
+  dailyRecords: DailyRecords
+  setOpenDay: (d: number | null) => void
   monthlyProgress: { budget: number; spent: number; pct: number; left: number; basis: 'budget' | 'income' }
   primaryGoal: SavingsGoal | null
   categoryTotals: Partial<Record<Category, number>>
@@ -757,7 +767,7 @@ export default function ExpertView(p: ExpertViewProps) {
       .slice(0, 3), [p.recurring, p.localPaidBills])
 
   const monthlyCommitment = useMemo(() => p.recurring.reduce((s, r) =>
-    s + (r.frequency === 'monthly' ? r.amount : r.frequency === 'weekly' ? r.amount * 4 : r.amount * 30), 0), [p.recurring])
+    s + monthlyEquivalent(r.amount, r.frequency), 0), [p.recurring])
   const paidBillsCount = Object.keys(p.localPaidBills).length
 
   const totalOwedToYou = useMemo(() => p.splitBillsWithStats.reduce((s, b) => s + b.owed, 0), [p.splitBillsWithStats])
@@ -801,6 +811,7 @@ export default function ExpertView(p: ExpertViewProps) {
 
   const nav: { key: Section; label: string; icon: React.ReactNode }[] = [
     { key: 'dashboard', label: 'Dashboard',     icon: <LayoutGrid size={17} /> },
+    { key: 'daily',     label: 'Daily',         icon: <CalendarDays size={17} /> },
     { key: 'expenses',  label: 'Expenses',      icon: <Receipt size={17} /> },
     { key: 'income',    label: 'Income',        icon: <ArrowUpCircle size={17} /> },
     { key: 'bills',     label: 'Bills',         icon: <CreditCard size={17} /> },
@@ -1188,6 +1199,47 @@ export default function ExpertView(p: ExpertViewProps) {
                 </div>
               </div>
 
+              {/* Row 2.5: Daily spending heatmap */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+                <Card className="lg:col-span-2 p-5">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Daily spending</p>
+                    <button onClick={() => goTo('daily')} className="flex items-center gap-1 text-[11px] text-gray-400 hover:text-black transition-colors">
+                      View all <ArrowRight size={11} />
+                    </button>
+                  </div>
+                  {p.dailySpend.elapsedDays === 0
+                    ? <p className="text-sm text-gray-300 text-center py-10">This month hasn't started yet</p>
+                    : <>
+                        <SpendingHeatmap data={p.dailySpend} monthKey={p.selectedMonth} size="comfortable" onSelectDay={p.setOpenDay} />
+                        <WeekdayBars stats={p.dowStats} size="comfortable" />
+                      </>}
+                </Card>
+                <Card className="p-5 flex flex-col gap-2.5">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-0.5">This month's days</p>
+                  {[
+                    { label: 'Typical day', value: fmtFull(Math.round(p.dailySpend.medianActiveDay)), sub: 'what a normal day costs' },
+                    { label: 'Highest day', value: p.dailyRecords.highest ? fmtFull(p.dailyRecords.highest.total) : '—',
+                      sub: p.dailyRecords.highest ? dateLabelOf(p.selectedMonth, p.dailyRecords.highest.day) : 'no spending yet',
+                      day: p.dailyRecords.highest?.day },
+                    { label: 'No-spend days', value: String(p.dailySpend.noSpendDayCount), sub: `of ${p.dailySpend.elapsedDays} days so far` },
+                    { label: 'Longest streak', value: `${p.dailyRecords.longestNoSpend} ${p.dailyRecords.longestNoSpend === 1 ? 'day' : 'days'}`, sub: 'no spending in a row' },
+                  ].map(t => (
+                    <button key={t.label} disabled={!t.day} onClick={() => t.day && p.setOpenDay(t.day)}
+                      className={`bg-gray-50 rounded-xl p-3 text-left transition-all ${t.day ? 'hover:bg-gray-100 active:scale-[.98] cursor-pointer' : 'cursor-default'}`}>
+                      <p className="text-[10px] text-gray-400 mb-0.5">{t.label}</p>
+                      <p className="text-sm font-medium text-black truncate">{t.value}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5 truncate">{t.sub}</p>
+                    </button>
+                  ))}
+                  {p.dailyRecords.heaviestDow && p.dailyRecords.heaviestDow.avg > 0 && (
+                    <p className="text-[11px] text-gray-500 leading-relaxed mt-auto pt-1">
+                      <strong className="text-black font-medium">{p.dailyRecords.heaviestDow.label}s</strong> are your heaviest day — {fmtFull(Math.round(p.dailyRecords.heaviestDow.avg))} on average.
+                    </p>
+                  )}
+                </Card>
+              </div>
+
               {/* Row 3: Spending chart + Donut */}
               <div className="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-4">
                 <Card className="lg:col-span-3 p-5">
@@ -1323,6 +1375,92 @@ export default function ExpertView(p: ExpertViewProps) {
                   )}
                 </Card>
               </div>
+            </>
+          )}
+
+          {/* ════════════════ DAILY ════════════════ */}
+          {section === 'daily' && (
+            <>
+              <SectionHead title="Daily spending" sub={`Day by day through ${getMonthLabelFull(p.selectedMonth)}`} />
+
+              {p.dailySpend.elapsedDays === 0 ? (
+                <Card className="p-10 text-center"><p className="text-sm text-gray-300">This month hasn't started yet</p></Card>
+              ) : (<>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                  {[
+                    { label: 'Daily average', value: fmtFull(Math.round(p.avgPerDay)), sub: 'across every day this month' },
+                    { label: 'Typical day', value: fmtFull(Math.round(p.dailySpend.medianActiveDay)), sub: 'median of days you spent' },
+                    { label: 'No-spend days', value: String(p.dailySpend.noSpendDayCount), sub: `of ${p.dailySpend.elapsedDays} days so far` },
+                    { label: 'Longest streak', value: `${p.dailyRecords.longestNoSpend} ${p.dailyRecords.longestNoSpend === 1 ? 'day' : 'days'}`, sub: 'no spending in a row' },
+                  ].map(t => (
+                    <Card key={t.label} className="stat-card p-4">
+                      <p className="text-[11px] text-gray-400 mb-1">{t.label}</p>
+                      <p className="text-lg font-medium text-black truncate">{t.value}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5 truncate">{t.sub}</p>
+                    </Card>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+                  <Card className="p-5">
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">{getMonthLabelFull(p.selectedMonth)}</p>
+                    <SpendingHeatmap data={p.dailySpend} monthKey={p.selectedMonth} size="comfortable" onSelectDay={p.setOpenDay} />
+                    <p className="text-[10px] text-gray-300 text-center mt-2">Click any day to see what you spent</p>
+                  </Card>
+
+                  <Card className="p-5">
+                    <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">By weekday</p>
+                    <WeekdayBars stats={p.dowStats} size="comfortable" />
+                    <div className="flex flex-col gap-2 mt-4">
+                      {p.dowStats.map(s => (
+                        <div key={s.idx} className="flex items-center gap-2.5">
+                          <span className="text-xs text-gray-500 w-9 shrink-0">{s.label}</span>
+                          <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                            <div className="h-full rounded-full bar-fill"
+                              style={{ width: `${s.occurrences === 0 ? 0 : (s.avg / Math.max(...p.dowStats.map(x => x.avg), 1)) * 100}%`,
+                                       backgroundColor: p.dailyRecords.heaviestDow?.idx === s.idx ? HEAT_COLORS[4] : HEAT_COLORS[2] }} />
+                          </div>
+                          <span className="text-[11px] text-gray-500 w-28 text-right shrink-0 tabular-nums">
+                            {s.occurrences === 0 ? '—' : `${fmtFull(Math.round(s.avg))} avg`}
+                          </span>
+                          <span className="text-[10px] text-gray-300 w-14 text-right shrink-0">
+                            {s.occurrences === 0 ? 'upcoming' : `${s.occurrences}x`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                    {p.dailyRecords.weekendAvg > 0 && p.dailyRecords.weekdayAvg > 0 && (
+                      <p className="text-[11px] text-gray-500 mt-4 pt-3 border-t border-gray-100 leading-relaxed">
+                        Weekends average <strong className="text-black font-medium">{fmtFull(Math.round(p.dailyRecords.weekendAvg))}</strong> a day
+                        vs <strong className="text-black font-medium">{fmtFull(Math.round(p.dailyRecords.weekdayAvg))}</strong> on weekdays.
+                      </p>
+                    )}
+                  </Card>
+                </div>
+
+                <Card className="p-5">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Every day this month</p>
+                  <div className="flex flex-col gap-1.5">
+                    {p.dailySpend.days.filter(d => !d.isFuture).slice().reverse().map((d, i) => (
+                      <button key={d.day} onClick={() => p.setOpenDay(d.day)}
+                        className="row-item flex items-center gap-3 px-2.5 py-2 rounded-xl hover:bg-gray-50 transition-colors text-left"
+                        style={{ animationDelay: `${0.012 * i}s` }}>
+                        <span className={`text-xs w-20 shrink-0 ${d.isToday ? 'text-black font-medium' : 'text-gray-500'}`}>
+                          {dateLabelOf(p.selectedMonth, d.day)}
+                        </span>
+                        <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden min-w-0">
+                          <div className="h-full rounded-full bg-gray-900 bar-fill"
+                            style={{ width: `${p.dailySpend.maxDay > 0 ? (d.total / p.dailySpend.maxDay) * 100 : 0}%` }} />
+                        </div>
+                        <span className={`text-xs w-32 text-right shrink-0 tabular-nums ${d.total > 0 ? 'text-black' : 'text-gray-300'}`}>
+                          {d.total > 0 ? fmtFull(d.total) : 'No spending'}
+                        </span>
+                        <span className="text-[10px] text-gray-300 w-10 text-right shrink-0">{d.count > 0 ? `${d.count}x` : ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                </Card>
+              </>)}
             </>
           )}
 

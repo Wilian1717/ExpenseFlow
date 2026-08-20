@@ -11,7 +11,7 @@ import {
   Lightbulb, AlertTriangle, Flag, Flame, Search, ChevronDown,
   User, Home, Zap, Menu, ChevronLeft, ChevronRight, History, CreditCard,
   MoreVertical, Undo2, Download, SlidersHorizontal, Tv, Eye, EyeOff, Calculator,
-  Users, UserPlus, Settings, Bell, LayoutGrid
+  Users, UserPlus, Settings, Bell, LayoutGrid, Lock, LockOpen, CalendarDays
 } from 'lucide-react'
 
 import {
@@ -19,10 +19,13 @@ import {
   type Expense, type Income, type Budget, type BudgetProfile, type SavingsGoal, type GoalHistory,
   type RecurringExpense, type ExpensePool, type ExpensePoolEntry, type ExpensePoolWithStats,
   type SplitBill, type SplitBillParticipant, type SplitBillWithStats, type Debt, type DebtPayment, type DebtWithStats,
+  type DaySpend, type DailySpendData, type DowStat, type DailyRecords,
   CATEGORY_CONFIG, CATEGORY_COLOR, INCOME_CONFIG, FREQ_LABELS, MONTHS, MONTHS_SHORT,
+  WEEKDAY_LABELS, HEAT_COLORS, SpendingHeatmap, WeekdayBars,
   fmtFull, fmt, fmtShort, groupId, parseRp, inMonth, currentMonth, daysLeftInMonth,
   getMonthLabelFull, getMonthLabelShort, nextDueDate, localISOString, dateWithCurrentTime,
   exportCSV, scrollHorizontally,
+  monthlyEquivalent, pctText, usageTone, savingsTone,
   RowMenu, CollapsibleSection, MonthPickerDropdown, SmartInsightsContent, Sparkline, Ring, CatIcon,
 } from './shared'
 import ExpertView from './expert'
@@ -1072,6 +1075,138 @@ function PoolDetailModal({ stats, selectedMonth, onClose, onLogEntry, onDeleteEn
   )
 }
 
+// ─── Day Detail Modal ─────────────────────────────────────────────────────────
+function DayDetailModal({
+  day, monthKey, dayData, dayExpenses, dayIncome, avgPerDay, maxDay, rank,
+  spentDayCount, elapsedDays, onClose, onStepDay, canPrev, canNext, onEditExpense, onDeleteExpense,
+}: {
+  day: number; monthKey: string; dayData: DaySpend
+  dayExpenses: Expense[]; dayIncome: Income[]
+  avgPerDay: number; maxDay: number; rank: number | null
+  spentDayCount: number; elapsedDays: number
+  onClose: () => void; onStepDay: (delta: 1 | -1) => void
+  canPrev: boolean; canNext: boolean
+  onEditExpense: (e: Expense) => void; onDeleteExpense: (e: Expense) => void
+}) {
+  const [yr, mo] = monthKey.split('-').map(Number)
+  // Construct locally — never parse a date string.
+  const fullDate = new Date(yr, mo - 1, day).toLocaleDateString('en-US', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  })
+  const total = dayData.total
+  const diffPct = avgPerDay > 0 ? ((total - avgPerDay) / avgPerDay) * 100 : 0
+  const incomeTot = dayIncome.reduce((s, i) => s + i.amount, 0)
+
+  const catTotals: Partial<Record<Category, number>> = {}
+  dayExpenses.forEach(e => { catTotals[e.category] = (catTotals[e.category] || 0) + e.amount })
+  const catSlices = (Object.keys(catTotals) as Category[])
+    .map(cat => ({ cat, spent: catTotals[cat] || 0 }))
+    .sort((a, b) => b.spent - a.spent)
+
+  const ordinal = (n: number) => {
+    const s = ['th', 'st', 'nd', 'rd'], v = n % 100
+    return n + (s[(v - 20) % 10] || s[v] || s[0])
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0">
+      <div className="bg-white rounded-2xl w-full max-w-sm shadow-xl max-h-[88vh] flex flex-col animate-slide-up">
+        <div className="flex items-start justify-between p-5 pb-3 border-b border-gray-100">
+          <div className="flex-1 min-w-0 mr-3">
+            <p className="text-base font-medium text-black truncate">{fullDate}</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {dayExpenses.length === 0 ? 'No transactions' : `${dayExpenses.length} ${dayExpenses.length === 1 ? 'transaction' : 'transactions'}`}
+              {dayData.isToday && ' · Today'}
+            </p>
+          </div>
+          <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all shrink-0"><X size={16} /></button>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 pb-5 pt-4">
+          {total === 0 ? (
+            <div className="text-center py-8">
+              <PiggyBank size={28} className="mx-auto mb-2 text-gray-200" />
+              <p className="text-sm text-gray-400">No spending on this day</p>
+              {incomeTot > 0 && <p className="text-xs text-emerald-600 mt-2">Received {fmt(incomeTot)}</p>}
+            </div>
+          ) : (<>
+            <div className="flex items-end justify-between gap-2 mb-3">
+              <p className="text-2xl font-semibold text-black">{fmt(total)}</p>
+              {avgPerDay > 0 && (
+                <span className="text-[11px] px-2 py-1 rounded-full font-medium bg-gray-100 text-gray-600 shrink-0">
+                  {Math.abs(diffPct) < 5 ? 'Right on your daily average'
+                    : `${pctText(Math.abs(diffPct))} ${diffPct > 0 ? 'above' : 'below'} average`}
+                </span>
+              )}
+            </div>
+
+            <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden mb-1.5">
+              <div className="h-full rounded-full bg-black bar-fill" style={{ width: `${maxDay > 0 ? Math.min((total / maxDay) * 100, 100) : 0}%` }} />
+            </div>
+            <p className="text-[10px] text-gray-400 mb-4">
+              Highest day this month: {fmt(maxDay)}
+              {rank !== null && spentDayCount >= 3 && <> · {ordinal(rank)} highest of {spentDayCount} days you spent</>}
+            </p>
+
+            {catSlices.length > 1 && (
+              <div className="flex flex-col gap-2 mb-4">
+                {catSlices.slice(0, 5).map((s, i) => (
+                  <div key={s.cat} className="legend-row flex items-center gap-2" style={{ animationDelay: `${0.04 * i}s` }}>
+                    <span className="text-xs text-gray-500 w-20 shrink-0 truncate">{CATEGORY_CONFIG[s.cat].label.split(' ')[0]}</span>
+                    <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                      <div className="h-full rounded-full bar-fill" style={{ width: `${(s.spent / total) * 100}%`, background: CATEGORY_COLOR[s.cat] }} />
+                    </div>
+                    <span className="text-[11px] text-gray-400 shrink-0 whitespace-nowrap">{fmt(s.spent)}</span>
+                  </div>
+                ))}
+                {catSlices.length > 5 && <p className="text-[10px] text-gray-300 pl-[88px]">+{catSlices.length - 5} more</p>}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-1.5">
+              {dayExpenses.map((e, i) => (
+                <div key={e.id} className="row-item flex items-center gap-2.5 bg-gray-50 rounded-xl p-2.5" style={{ animationDelay: `${0.03 * i}s` }}>
+                  <CatIcon category={e.category} size={32} />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-black truncate">{e.title}</p>
+                    <p className="text-[10px] text-gray-400">
+                      {new Date(e.created_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                      {e.note && ` · ${e.note}`}
+                    </p>
+                  </div>
+                  <span className="text-xs font-medium text-black shrink-0">{fmt(e.amount)}</span>
+                  <RowMenu items={[
+                    { label: 'Edit', icon: <Pencil size={13} />, onClick: () => onEditExpense(e) },
+                    { label: 'Delete', icon: <Trash2 size={13} />, onClick: () => onDeleteExpense(e), danger: true },
+                  ]} />
+                </div>
+              ))}
+            </div>
+
+            {incomeTot > 0 && (
+              <p className="text-[11px] text-emerald-600 mt-3">
+                Also received {fmt(incomeTot)}{dayIncome.length === 1 ? ` · ${dayIncome[0].title}` : ''}
+              </p>
+            )}
+          </>)}
+        </div>
+
+        <div className="flex items-center justify-between gap-2 px-5 py-3 border-t border-gray-100 shrink-0">
+          <button onClick={() => onStepDay(-1)} disabled={!canPrev}
+            className="flex items-center gap-1 text-xs text-gray-500 hover:text-black disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+            <ChevronLeft size={14} /> Prev
+          </button>
+          <span className="text-[11px] text-gray-400">Day {day} of {elapsedDays}</span>
+          <button onClick={() => onStepDay(1)} disabled={!canNext}
+            className="flex items-center gap-1 text-xs text-gray-500 hover:text-black disabled:opacity-30 disabled:cursor-not-allowed transition-colors">
+            Next <ChevronRight size={14} />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Add Split Bill Modal ─────────────────────────────────────────────────────
 function AddSplitBillModal({ onClose, onSave }: {
   onClose: () => void
@@ -1675,6 +1810,117 @@ function DebtDetailModal({ stats, onClose, onOpenLog, onDeletePayment, onEditDeb
   )
 }
 
+// ─── Budget Simulator helpers ─────────────────────────────────────────────────
+const ALL_CATS = Object.keys(CATEGORY_CONFIG) as Category[]
+
+const SIM_TABS = [
+  { key: 'plan',      label: 'Planner' },
+  { key: 'variance',  label: 'Actual'  },
+  { key: 'scenarios', label: 'Compare' },
+  { key: 'goals',     label: 'Goals'   },
+] as const
+
+/**
+ * Set `cat` to `rawValue`, then redistribute what's left across the unlocked
+ * categories in proportion to their current values so the grand total lands
+ * exactly on `pool` (integer rupiah, zero drift).
+ */
+function rebalanceBudgets(
+  current: Partial<Record<Category, number>>,
+  cat: Category,
+  rawValue: number,
+  locked: Partial<Record<Category, boolean>>,
+  pool: number,
+): Partial<Record<Category, number>> {
+  const val = (c: Category) => Math.max(0, Math.round(current[c] || 0))
+
+  // Locked money comes off the top and is untouchable.
+  const lockedTotal = ALL_CATS.filter(c => locked[c] && c !== cat).reduce((s, c) => s + val(c), 0)
+  // The edited category can never claim locked money.
+  const editable = Math.max(0, pool - lockedTotal)
+  const target   = Math.min(Math.max(0, Math.round(rawValue)), editable)
+
+  const next: Partial<Record<Category, number>> = { ...current }
+  next[cat] = target
+
+  const others = ALL_CATS.filter(c => c !== cat && !locked[c])
+  if (others.length === 0) return next          // everything else locked: clamp only
+
+  const remainder = Math.max(0, editable - target)
+  const othersSum = others.reduce((s, c) => s + val(c), 0)
+
+  if (othersSum <= 0) {
+    const each = Math.floor(remainder / others.length)   // nothing to scale -> even spread
+    others.forEach(c => { next[c] = each })
+  } else {
+    const k = remainder / othersSum
+    others.forEach(c => { next[c] = Math.floor(val(c) * k) })   // floor, never round
+  }
+
+  // Drift repair. Flooring keeps drift >= 0, so this is always additive and can
+  // never push a category negative. Leftovers go to the largest row so they're
+  // invisible instead of resurrecting a zeroed category as "Rp 7".
+  const assigned = others.reduce((s, c) => s + (next[c] || 0), 0)
+  const drift    = remainder - assigned
+  if (drift > 0) {
+    const sink = others.reduce((a, b) => (next[b] || 0) > (next[a] || 0) ? b : a, others[0])
+    next[sink] = (next[sink] || 0) + drift
+  }
+  return next
+}
+
+/** One proportional rescale of the unlocked set so the total hits `pool`. */
+function fitToPool(
+  current: Partial<Record<Category, number>>,
+  locked: Partial<Record<Category, boolean>>,
+  pool: number,
+): Partial<Record<Category, number>> {
+  const anchor = ALL_CATS.find(c => !locked[c])
+  if (!anchor) return current
+  // Re-set the first unlocked category to its own value; rebalanceBudgets then
+  // normalizes everything else onto `pool`.
+  return rebalanceBudgets(current, anchor, Math.max(0, Math.round(current[anchor] || 0)), locked, pool)
+}
+
+function ScenarioCard({ name, desc, icon, budgetSet, scenarioKey, simIncome, simFixedTotal, activeScenario, onApply, index }: {
+  name: string; desc: string; icon: React.ReactNode
+  budgetSet: Partial<Record<Category, number>>
+  scenarioKey: 'frugal' | 'normal' | 'ambitious'
+  simIncome: number; simFixedTotal: number
+  activeScenario: 'custom' | 'frugal' | 'normal' | 'ambitious'
+  onApply: (k: 'frugal' | 'normal' | 'ambitious') => void
+  index: number
+}) {
+  const varTotal = Object.values(budgetSet).reduce((s, v) => s + (v || 0), 0)
+  const surplus  = simIncome - simFixedTotal - varTotal
+  const savRate  = simIncome > 0 ? (surplus / simIncome) * 100 : 0
+  const isActive = activeScenario === scenarioKey
+  return (
+    <div className={`border rounded-xl p-3 flex flex-col gap-2 transition-all animate-pop-in ${isActive ? 'border-black' : 'border-gray-100'}`}
+      style={{ animationDelay: `${0.05 * index}s` }}>
+      <div className="flex items-center gap-1.5 mb-0.5">
+        <span className="text-gray-500">{icon}</span>
+        <p className="text-xs font-semibold text-gray-800">{name}</p>
+        {isActive && <span className="ml-auto text-[10px] bg-black text-white px-1.5 py-0.5 rounded-full">Active</span>}
+      </div>
+      <p className="text-[10px] text-gray-400 leading-relaxed">{desc}</p>
+      <div className="space-y-1 text-xs">
+        <div className="flex justify-between text-gray-500"><span>Variable</span><span className="font-medium">{fmt(varTotal)}</span></div>
+        <div className="flex justify-between text-gray-500"><span>Surplus</span>
+          <span className={`font-medium ${surplus >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmt(Math.abs(surplus))}{surplus < 0 ? ' deficit' : ''}</span>
+        </div>
+        <div className="flex justify-between text-gray-500"><span>Savings rate</span>
+          <span className={`font-medium ${savingsTone(savRate).text}`}>{pctText(savRate)}</span>
+        </div>
+      </div>
+      <button onClick={() => onApply(scenarioKey)}
+        className={`w-full py-1.5 rounded-lg text-xs font-medium transition-all ${isActive ? 'bg-black text-white' : 'border border-gray-200 text-gray-600 hover:border-black hover:text-black'}`}>
+        {isActive ? 'Applied' : 'Apply'}
+      </button>
+    </div>
+  )
+}
+
 // ─── Budget Simulator Modal ───────────────────────────────────────────────────
 function BudgetSimulatorModal({
   thisMonthIncomeTot, categoryTotals,
@@ -1687,7 +1933,7 @@ function BudgetSimulatorModal({
   budgets: Budget[]; savingsGoals: SavingsGoal[]
   selectedMonth: string; onClose: () => void
 }) {
-  const [tab, setTab] = useState<'plan' | 'scenarios' | 'goals'>('plan')
+  const [tab, setTab] = useState<'plan' | 'variance' | 'scenarios' | 'goals'>('plan')
   const [simIncome, setSimIncome] = useState(thisMonthIncomeTot || 0)
   const [simCategoryBudgets, setSimCategoryBudgets] = useState<Partial<Record<Category, number>>>(() => {
     const init: Partial<Record<Category, number>> = {}
@@ -1708,8 +1954,18 @@ function BudgetSimulatorModal({
   const [profileMenuOpen, setProfileMenuOpen] = useState(false)
   const [namingMode, setNamingMode] = useState<'new' | 'rename' | null>(null)
   const [nameDraft, setNameDraft] = useState('')
+  const [confirmDeleteProfile, setConfirmDeleteProfile] = useState(false)
+  const [deletingProfile, setDeletingProfile] = useState(false)
+  // Auto-balance is opt-in so the Planner stays as simple as before by default.
+  // Locks are session-only (no column on budget_simulations).
+  const [autoBalance, setAutoBalance] = useState(false)
+  const [lockedCats, setLockedCats] = useState<Partial<Record<Category, boolean>>>({})
+  const [dragCat, setDragCat] = useState<Category | null>(null)
+  const bodyRef = useRef<HTMLDivElement>(null)
 
   const activeProfile = profiles.find(p => p.id === activeProfileId) || null
+
+  useEffect(() => { bodyRef.current?.scrollTo({ top: 0 }) }, [tab])
 
   const loadProfileIntoEditor = (p: BudgetProfile) => {
     setActiveProfileId(p.id)
@@ -1797,7 +2053,10 @@ function BudgetSimulatorModal({
   const handleDeleteProfile = async () => {
     if (!activeProfileId) return
     const id = activeProfileId
-    await supabase.from('budget_simulations').delete().eq('id', id)
+    setDeletingProfile(true)
+    const { error } = await supabase.from('budget_simulations').delete().eq('id', id)
+    setDeletingProfile(false)
+    if (error) return                    // keep the row visible if the delete failed
     const remaining = profiles.filter(p => p.id !== id)
     setProfiles(remaining)
     if (remaining.length > 0) {
@@ -1806,6 +2065,7 @@ function BudgetSimulatorModal({
       setActiveProfileId(null); setSavedAt(null)
       setSimCategoryBudgets({}); setGoalAllocations({})
     }
+    setConfirmDeleteProfile(false)
     setProfileMenuOpen(false)
   }
 
@@ -1816,10 +2076,8 @@ function BudgetSimulatorModal({
   }
 
   // ── Key derived values ──────────────────────────────────────────────────────
-  const simFixedTotal = useMemo(() => recurring.reduce((s, r) => {
-    const monthly = r.frequency === 'daily' ? r.amount * 30 : r.frequency === 'weekly' ? r.amount * 4.33 : r.amount
-    return s + monthly
-  }, 0), [recurring])
+  const simFixedTotal = useMemo(() =>
+    recurring.reduce((s, r) => s + monthlyEquivalent(r.amount, r.frequency), 0), [recurring])
 
   const simVariableTotal = useMemo(() =>
     Object.values(simCategoryBudgets).reduce((s, v) => s + (v || 0), 0), [simCategoryBudgets])
@@ -1876,8 +2134,89 @@ function BudgetSimulatorModal({
     return Math.ceil(remaining / monthly)
   }
 
+  // ── Slider / rebalance model ────────────────────────────────────────────────
+  // Money genuinely available to spread across variable categories.
+  // Mirrors ambitiousBudgets so the two models agree.
+  const spendablePool = Math.max(0, Math.round(simIncome - simFixedTotal - totalGoalAllocations))
+  const unlockedCount = ALL_CATS.filter(c => !lockedCats[c]).length
+  const allocated     = simVariableTotal
+  const poolRemaining = spendablePool - allocated
+  const poolPct       = spendablePool > 0 ? (allocated / spendablePool) * 100 : (allocated > 0 ? Infinity : 0)
+  // Auto-balance is meaningless with nothing to distribute.
+  const canAutoBalance = spendablePool > 0 && unlockedCount > 1
+  const effectiveAuto  = autoBalance && canAutoBalance
+  // Never cap below the current value or a drag would silently shrink the budget.
+  const catSliderMax = (budget: number) => Math.max(spendablePool > 0 ? spendablePool : 1_000_000, budget, 1)
+  const sliderStep = (() => {
+    const base = spendablePool > 0 ? spendablePool : 1_000_000
+    return Math.max(10_000, Math.round(base / 100 / 10_000) * 10_000)
+  })()
+
+  // ── Planned vs actual ───────────────────────────────────────────────────────
+  const monthMeta = useMemo(() => {
+    const [yr, mo] = selectedMonth.split('-').map(Number)
+    const daysInMonth = new Date(yr, mo, 0).getDate()
+    const left = daysLeftInMonth(selectedMonth)   // null for any non-current month
+    const isCurrent = left !== null
+    const daysElapsed = isCurrent ? Math.max(1, daysInMonth - left) : daysInMonth
+    return { daysInMonth, daysElapsed, daysLeft: left ?? 0, isCurrent }
+  }, [selectedMonth])
+
+  const varianceRows = useMemo(() => {
+    const rows = ALL_CATS.map(cat => {
+      const planned  = simCategoryBudgets[cat] || 0
+      const actual   = categoryTotals[cat] || 0
+      const variance = actual - planned                       // positive = overspent
+      const pct = planned > 0 ? (actual / planned) * 100 : (actual > 0 ? Infinity : 0)
+      const projected = monthMeta.isCurrent
+        ? Math.round(actual / monthMeta.daysElapsed * monthMeta.daysInMonth)
+        : actual
+      return { cat, planned, actual, variance, pct, projected,
+               projVariance: projected - planned, unplanned: planned === 0 && actual > 0 }
+    }).filter(r => r.planned > 0 || r.actual > 0)
+    // Sort by absolute rupiah, not percentage — a 300% overshoot on Rp 40.000 is
+    // noise next to 12% on housing.
+    rows.sort((a, b) => (b.variance - a.variance) || (b.planned - a.planned))
+    return rows
+  }, [simCategoryBudgets, categoryTotals, monthMeta])
+
+  const varianceTotals = useMemo(() => {
+    const actual    = varianceRows.reduce((s, r) => s + r.actual, 0)
+    const projected = varianceRows.reduce((s, r) => s + r.projected, 0)
+    const planned   = simVariableTotal
+    return { planned, actual, projected,
+             pct: planned > 0 ? (actual / planned) * 100 : (actual > 0 ? Infinity : 0) }
+  }, [varianceRows, simVariableTotal])
+
   // Handlers
-  const handleResetFromActuals = () => { setSimCategoryBudgets({ ...categoryTotals }); setActiveScenario('custom') }
+  // Single write path for every category change (slider AND text input).
+  const setCatBudget = (cat: Category, n: number) => {
+    setSimCategoryBudgets(prev =>
+      effectiveAuto ? rebalanceBudgets(prev, cat, n, lockedCats, spendablePool)
+                    : { ...prev, [cat]: Math.max(0, Math.round(n)) })
+    setActiveScenario('custom')
+  }
+  // Locking never changes numbers — the pool meter surfaces any mismatch and
+  // "Fit to pool" resolves it on demand.
+  const toggleLock = (cat: Category) => setLockedCats(prev => ({ ...prev, [cat]: !prev[cat] }))
+  const handleFitToPool = () => {
+    setSimCategoryBudgets(prev => fitToPool(prev, lockedCats, spendablePool))
+    setActiveScenario('custom')
+  }
+  // Bulk overwrite path shared by Reset actuals / 50-30-20 / Apply scenario.
+  // Locks are only honoured while auto-balance is on, since that's the only time
+  // they're visible.
+  const applyBudgetSet = (set: Partial<Record<Category, number>>) => {
+    setSimCategoryBudgets(prev => {
+      if (!effectiveAuto) return { ...set }
+      const merged = { ...set }
+      ALL_CATS.forEach(c => { if (lockedCats[c]) merged[c] = prev[c] || 0 })
+      return fitToPool(merged, lockedCats, spendablePool)
+    })
+    setActiveScenario('custom')
+  }
+
+  const handleResetFromActuals = () => applyBudgetSet(categoryTotals)
   const handleAutoAllocate5030 = () => {
     const needs: Category[] = ['housing', 'utilities', 'food', 'transport']
     const wants: Category[] = ['shopping', 'entertainment', 'personal', 'other']
@@ -1891,16 +2230,13 @@ function BudgetSimulatorModal({
     avgNeeds.forEach(c => { newB[c] = needTot > 0 ? Math.round((threeMonthCatAvg[c] || 0) / needTot * needPool) : Math.round(needPool / avgNeeds.length) })
     avgWants.forEach(c => { newB[c] = wantTot > 0 ? Math.round((threeMonthCatAvg[c] || 0) / wantTot * wantPool) : Math.round(wantPool / avgWants.length) })
     newB.savings = Math.round(simIncome * 0.20)
-    setSimCategoryBudgets(newB); setActiveScenario('custom')
+    applyBudgetSet(newB)
   }
   const handleApplyScenario = (s: 'frugal' | 'normal' | 'ambitious') => {
     const map = { frugal: frugalBudgets, normal: normalBudgets, ambitious: ambitiousBudgets }
-    setSimCategoryBudgets({ ...map[s] }); setActiveScenario(s); setTab('plan')
-  }
-  const updateCatBudget = (cat: Category, val: string) => {
-    const n = parseRp(val)
-    setSimCategoryBudgets(prev => ({ ...prev, [cat]: n }))
-    setActiveScenario('custom')
+    applyBudgetSet(map[s])
+    setActiveScenario(s)          // after applyBudgetSet, which forces 'custom'
+    setTab('plan')
   }
 
   function savedLabel() {
@@ -1911,39 +2247,6 @@ function BudgetSimulatorModal({
     return `${Math.floor(diffMin / 60)}h ago`
   }
 
-  // ── Scenario card helper ────────────────────────────────────────────────────
-  function ScenarioCard({ name, desc, icon, budgetSet, scenarioKey }: {
-    name: string; desc: string; icon: React.ReactNode
-    budgetSet: Partial<Record<Category, number>>; scenarioKey: 'frugal' | 'normal' | 'ambitious'
-  }) {
-    const varTotal = Object.values(budgetSet).reduce((s, v) => s + (v || 0), 0)
-    const surplus  = simIncome - simFixedTotal - varTotal
-    const savRate  = simIncome > 0 ? (surplus / simIncome) * 100 : 0
-    const isActive = activeScenario === scenarioKey
-    return (
-      <div className={`border rounded-xl p-3 flex flex-col gap-2 transition-all ${isActive ? 'border-black' : 'border-gray-100'}`}>
-        <div className="flex items-center gap-1.5 mb-0.5">
-          <span className="text-gray-500">{icon}</span>
-          <p className="text-xs font-semibold text-gray-800">{name}</p>
-          {isActive && <span className="ml-auto text-[10px] bg-black text-white px-1.5 py-0.5 rounded-full">Active</span>}
-        </div>
-        <p className="text-[10px] text-gray-400 leading-relaxed">{desc}</p>
-        <div className="space-y-1 text-xs">
-          <div className="flex justify-between text-gray-500"><span>Variable</span><span className="font-medium">{fmt(varTotal)}</span></div>
-          <div className="flex justify-between text-gray-500"><span>Surplus</span>
-            <span className={`font-medium ${surplus >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{fmt(Math.abs(surplus))}{surplus < 0 ? ' deficit' : ''}</span>
-          </div>
-          <div className="flex justify-between text-gray-500"><span>Savings rate</span>
-            <span className={`font-medium ${savRate >= 20 ? 'text-emerald-600' : savRate >= 10 ? 'text-amber-600' : 'text-red-500'}`}>{savRate.toFixed(0)}%</span>
-          </div>
-        </div>
-        <button onClick={() => handleApplyScenario(scenarioKey)}
-          className={`w-full py-1.5 rounded-lg text-xs font-medium transition-all ${isActive ? 'bg-black text-white' : 'border border-gray-200 text-gray-600 hover:border-black hover:text-black'}`}>
-          {isActive ? 'Applied' : 'Apply'}
-        </button>
-      </div>
-    )
-  }
 
   if (loadingPlan) return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30">
@@ -2013,23 +2316,27 @@ function BudgetSimulatorModal({
             </button>
             <RowMenu items={[
               { label: 'Rename', icon: <Pencil size={13} />, onClick: () => { setNamingMode('rename'); setNameDraft(activeProfile?.name || '') }, disabled: !activeProfileId },
-              { label: 'Delete', icon: <Trash2 size={13} />, onClick: handleDeleteProfile, danger: true, disabled: !activeProfileId },
+              { label: 'Delete', icon: <Trash2 size={13} />, onClick: () => setConfirmDeleteProfile(true), danger: true, disabled: !activeProfileId },
             ]} />
           </>)}
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 mx-5 mt-3 bg-gray-100 p-1 rounded-lg shrink-0">
-          {(['plan', 'scenarios', 'goals'] as const).map(t => (
-            <button key={t} onClick={() => setTab(t)}
-              className={`flex-1 py-1 rounded-md text-[11px] font-medium transition-all ${tab === t ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-black'}`}>
-              {t === 'plan' ? 'Planner' : t === 'scenarios' ? 'Compare' : 'Goals'}
+        {/* Tabs — no gap-1: the sliding pill needs exact 1/n offsets */}
+        <div className="relative flex mx-5 mt-3 bg-gray-100 p-1 rounded-lg shrink-0">
+          <div className="tab-indicator absolute top-1 bottom-1 left-1 bg-white rounded-md shadow-sm"
+            style={{ width: `calc((100% - 0.5rem) / ${SIM_TABS.length})`,
+                     transform: `translateX(calc(${SIM_TABS.findIndex(t => t.key === tab)} * 100%))` }} />
+          {SIM_TABS.map(t => (
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={`relative z-10 flex-1 py-1 rounded-md text-[11px] font-medium transition-colors ${tab === t.key ? 'text-black' : 'text-gray-400 hover:text-black'}`}>
+              {t.label}
             </button>
           ))}
         </div>
 
         {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto px-5 pb-5 pt-4 space-y-4">
+        <div ref={bodyRef} className="flex-1 overflow-y-auto px-5 pb-5 pt-4">
+        <div key={tab} className="space-y-4 animate-slide-up">
 
           {/* ── TAB 1: PLANNER ── */}
           {tab === 'plan' && (<>
@@ -2054,7 +2361,7 @@ function BudgetSimulatorModal({
                 ? <p className="text-xs text-gray-300">No recurring bills set up yet</p>
                 : <div className="flex flex-col gap-1.5">
                   {recurring.map(r => {
-                    const monthly = r.frequency === 'daily' ? r.amount * 30 : r.frequency === 'weekly' ? r.amount * 4.33 : r.amount
+                    const monthly = monthlyEquivalent(r.amount, r.frequency)
                     return (
                       <div key={r.id} className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
@@ -2078,31 +2385,100 @@ function BudgetSimulatorModal({
                   <button onClick={handleAutoAllocate5030} className="text-[10px] px-2 py-1 border border-gray-200 rounded-lg text-gray-500 hover:border-black hover:text-black transition-all">50/30/20</button>
                 </div>
               </div>
+              {/* Pool meter */}
+              <div className="bg-gray-50 rounded-xl px-3 py-2.5 mb-3">
+                <div className="flex justify-between items-center mb-1.5">
+                  <p className="text-xs font-medium text-gray-500">Allocated</p>
+                  <p className="text-xs text-gray-500">
+                    <span className="font-semibold text-gray-800">{fmt(allocated)}</span>
+                    {spendablePool > 0 && <> of {fmt(spendablePool)}</>}
+                  </p>
+                </div>
+                <div className="bg-gray-200 rounded-full h-1 overflow-hidden mb-2">
+                  <div className={`h-full rounded-full bar-fill ${usageTone(poolPct).bar}`}
+                    style={{ width: `${Number.isFinite(poolPct) ? Math.min(poolPct, 100) : 100}%` }} />
+                </div>
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <button onClick={() => setAutoBalance(v => !v)} disabled={!canAutoBalance}
+                    title={!canAutoBalance
+                      ? (spendablePool <= 0 ? 'Add your monthly income first' : 'Unlock at least two categories')
+                      : 'Keep budgets fitting your income automatically'}
+                    aria-pressed={effectiveAuto}
+                    className={`flex items-center gap-1.5 text-[10px] font-medium px-2 py-1 rounded-lg border transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                      effectiveAuto ? 'bg-black border-black text-white' : 'border-gray-200 text-gray-500 hover:border-black hover:text-black'}`}>
+                    <SlidersHorizontal size={11} /> Auto-balance
+                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {simIncome === 0
+                      ? <span className="text-[10px] text-gray-300">Enter your income above to unlock auto-balance</span>
+                      : spendablePool === 0
+                        ? <span className="text-[10px] text-red-600">Fixed costs and goals already use all your income</span>
+                        : <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${poolRemaining >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+                            {poolRemaining >= 0 ? `${fmt(poolRemaining)} left` : `${fmt(-poolRemaining)} over`}
+                          </span>
+                    }
+                    {effectiveAuto && allocated !== spendablePool && (
+                      <button onClick={handleFitToPool}
+                        className="text-[10px] px-2 py-1 border border-gray-200 rounded-lg text-gray-500 hover:border-black hover:text-black transition-all">
+                        Fit to pool
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <div className="flex flex-col gap-2">
-                {(Object.keys(CATEGORY_CONFIG) as Category[]).map(cat => {
-                  const cfg      = CATEGORY_CONFIG[cat]
-                  const budget   = simCategoryBudgets[cat] || 0
-                  const actual   = categoryTotals[cat] || 0
-                  const avgVal   = threeMonthCatAvg[cat] || 0
-                  const barPct   = simIncome > 0 ? Math.min((budget / simIncome) * 100, 100) : 0
+                {ALL_CATS.map((cat, i) => {
+                  const cfg     = CATEGORY_CONFIG[cat]
+                  const budget  = simCategoryBudgets[cat] || 0
+                  const actual  = categoryTotals[cat] || 0
+                  const avgVal  = threeMonthCatAvg[cat] || 0
+                  const isLocked = !!lockedCats[cat]
+                  const max     = catSliderMax(budget)
+                  const fillPct = Math.min((budget / max) * 100, 100)
+                  const rowDisabled = effectiveAuto && isLocked
                   return (
-                    <div key={cat}>
+                    <div key={cat} className="row-item" style={{ animationDelay: `${0.03 * i}s` }}>
                       <div className="flex items-center gap-2">
                         <div className={`w-6 h-6 ${cfg.bg} rounded-lg flex items-center justify-center shrink-0`}>
                           <span className={cfg.text}>{cfg.icon}</span>
                         </div>
-                        <span className="text-xs text-gray-600 flex-1">{cfg.label}</span>
+                        <span className="text-xs text-gray-600 flex-1 truncate min-w-0">{cfg.label}</span>
+                        {autoBalance && (
+                          <button onClick={() => toggleLock(cat)} aria-pressed={isLocked}
+                            title={isLocked ? 'Unlock' : 'Lock this amount'}
+                            className={`w-6 h-6 flex items-center justify-center rounded-lg shrink-0 transition-all active:scale-[.98] ${
+                              isLocked ? 'bg-black text-white' : 'text-gray-300 hover:text-black hover:bg-gray-100'}`}>
+                            {isLocked ? <Lock size={11} /> : <LockOpen size={11} />}
+                          </button>
+                        )}
                         <div className="relative w-32 shrink-0">
                           <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[10px] text-gray-400 select-none">Rp</span>
                           <input type="text" inputMode="numeric" value={groupId(budget)} placeholder="0"
-                            onChange={e => updateCatBudget(cat, e.target.value)}
-                            className="w-full border border-gray-200 rounded-lg pl-6 pr-2 py-1.5 text-xs text-black focus:outline-none focus:border-black transition text-right" />
+                            disabled={rowDisabled}
+                            onChange={e => {
+                              // Write raw while focused so digits don't fight the user;
+                              // the rebalance runs once on blur/Enter.
+                              const n = parseRp(e.target.value)
+                              setSimCategoryBudgets(prev => ({ ...prev, [cat]: n }))
+                              setActiveScenario('custom')
+                            }}
+                            onBlur={() => { if (effectiveAuto) handleFitToPool() }}
+                            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }}
+                            className="w-full border border-gray-200 rounded-lg pl-6 pr-2 py-1.5 text-xs text-black focus:outline-none focus:border-black transition text-right disabled:opacity-50 disabled:cursor-not-allowed" />
                         </div>
                       </div>
                       <div className="flex items-center gap-2 mt-1 ml-8">
-                        <div className="flex-1 bg-gray-100 rounded-full h-1 overflow-hidden">
-                          <div className="h-full bg-black rounded-full transition-all duration-300" style={{ width: `${barPct}%` }} />
-                        </div>
+                        <input type="range" min={0} max={max} step={sliderStep}
+                          value={Math.min(budget, max)}
+                          disabled={rowDisabled}
+                          aria-label={`${cfg.label} budget`}
+                          onPointerDown={() => setDragCat(cat)}
+                          onPointerUp={() => setDragCat(null)}
+                          onPointerCancel={() => setDragCat(null)}
+                          onChange={e => setCatBudget(cat, parseInt(e.target.value, 10))}
+                          className={`budget-slider flex-1 min-w-0 ${dragCat === cat ? 'dragging' : ''}`}
+                          style={{ ['--track' as string]: `linear-gradient(to right, ${isLocked && autoBalance ? '#6b7280' : '#111110'} ${fillPct}%, #e9e9e6 ${fillPct}%)` } as React.CSSProperties} />
                         <span className="text-[10px] text-gray-300 shrink-0">
                           {actual > 0 && `spent ${fmt(actual)}`}{avgVal > 0 && actual === 0 && `avg ${fmt(avgVal)}`}
                         </span>
@@ -2123,10 +2499,11 @@ function BudgetSimulatorModal({
               <div className="flex justify-between items-center">
                 <span className="text-sm font-medium text-gray-700">= Surplus / Savings</span>
                 <div className="flex items-center gap-2">
-                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${simSavingsRate >= 20 ? 'bg-emerald-50 text-emerald-700' : simSavingsRate >= 10 ? 'bg-amber-50 text-amber-700' : 'bg-red-50 text-red-600'}`}>
-                    {simSavingsRate.toFixed(0)}% saved
+                  <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium transition-colors ${savingsTone(simSavingsRate).chip}`}>
+                    {pctText(simSavingsRate)} saved
                   </span>
-                  <span className={`text-sm font-bold ${simSurplus >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                  <span key={simSurplus >= 0 ? 'pos' : 'neg'}
+                    className={`text-sm font-bold surplus-pop ${simSurplus >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
                     {simSurplus >= 0 ? '+' : ''}{fmt(Math.round(simSurplus))}
                   </span>
                 </div>
@@ -2140,20 +2517,136 @@ function BudgetSimulatorModal({
             </div>
           </>)}
 
-          {/* ── TAB 2: SCENARIOS ── */}
+          {/* ── TAB 2: ACTUAL (planned vs actual) ── */}
+          {tab === 'variance' && (<>
+            {varianceRows.length === 0 ? (
+              <div className="text-center py-10">
+                <BarChart2 size={28} className="mx-auto mb-2 text-gray-200" />
+                <p className="text-sm text-gray-400 mb-1">Nothing to compare yet</p>
+                <p className="text-xs text-gray-300 mb-4">Set budgets in the Planner, then come back to see how you're tracking.</p>
+                <button onClick={() => setTab('plan')}
+                  className="bg-black text-white px-3.5 py-2 rounded-lg text-xs font-medium hover:bg-gray-800 active:scale-[.98] transition-all">
+                  Go to Planner
+                </button>
+              </div>
+            ) : (<>
+              {/* Summary */}
+              <div className="border border-gray-100 rounded-xl px-4 py-3 animate-pop-in">
+                <div className="flex justify-between items-center mb-3">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Plan vs {getMonthLabelFull(selectedMonth)}</p>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${usageTone(varianceTotals.pct).chip}`}>
+                    {pctText(varianceTotals.pct)} used
+                  </span>
+                </div>
+                <div className="grid grid-cols-3 gap-2 mb-2.5">
+                  <div>
+                    <p className="text-[10px] text-gray-400 mb-0.5">Planned</p>
+                    <p className="text-[13px] font-semibold text-black">{fmt(varianceTotals.planned)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400 mb-0.5">Actual</p>
+                    <p className="text-[13px] font-semibold text-black">{fmt(varianceTotals.actual)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[10px] text-gray-400 mb-0.5">{monthMeta.isCurrent ? 'Projected' : 'Final'}</p>
+                    <p className={`text-[13px] font-semibold ${monthMeta.isCurrent && varianceTotals.projected > varianceTotals.planned && varianceTotals.planned > 0 ? 'text-amber-600' : 'text-black'}`}>
+                      {fmt(varianceTotals.projected)}
+                    </p>
+                  </div>
+                </div>
+                <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden mb-2">
+                  <div className={`h-full rounded-full bar-fill ${usageTone(varianceTotals.pct).bar}`}
+                    style={{ width: `${Number.isFinite(varianceTotals.pct) ? Math.min(varianceTotals.pct, 100) : 100}%` }} />
+                </div>
+                <p className="text-[10px] text-gray-400">
+                  {monthMeta.isCurrent
+                    ? <>{monthMeta.daysLeft} {monthMeta.daysLeft === 1 ? 'day' : 'days'} left · on pace for {fmt(varianceTotals.projected)}
+                        {varianceTotals.planned > 0 && (varianceTotals.projected > varianceTotals.planned
+                          ? <span className="text-amber-600"> ({fmt(varianceTotals.projected - varianceTotals.planned)} over plan)</span>
+                          : <span className="text-emerald-600"> ({fmt(varianceTotals.planned - varianceTotals.projected)} under plan)</span>)}
+                      </>
+                    : <>Final · {fmt(varianceTotals.actual)} spent</>}
+                </p>
+              </div>
+
+              {varianceTotals.planned === 0 && varianceTotals.actual > 0 && (
+                <div className="flex items-start gap-1.5 bg-amber-50 rounded-lg px-2.5 py-2">
+                  <AlertTriangle size={12} className="text-amber-500 shrink-0 mt-0.5" />
+                  <p className="text-xs text-amber-700">None of this month's spending is budgeted. Set budgets in the Planner to track against them.</p>
+                </div>
+              )}
+              {varianceTotals.planned > 0 && varianceTotals.actual === 0 && (
+                <p className="text-xs text-gray-300">No spending recorded for {getMonthLabelFull(selectedMonth)} yet.</p>
+              )}
+
+              {/* Rows */}
+              <div className="flex flex-col gap-2.5">
+                {varianceRows.map((r, i) => {
+                  const cfg = CATEGORY_CONFIG[r.cat]
+                  const tone = usageTone(r.pct)
+                  return (
+                    <div key={r.cat} className="row-item" style={{ animationDelay: `${0.03 * i}s` }}>
+                      <div className="flex items-start gap-2">
+                        <div className={`w-6 h-6 ${cfg.bg} rounded-lg flex items-center justify-center shrink-0`}>
+                          <span className={cfg.text}>{cfg.icon}</span>
+                        </div>
+                        <span className="text-xs text-gray-600 flex-1 truncate min-w-0 pt-1">{cfg.label}</span>
+                        <div className="text-right shrink-0">
+                          <p className="text-xs font-semibold text-black">{fmt(r.actual)}</p>
+                          <p className="text-[10px] text-gray-400">
+                            {r.unplanned ? 'not budgeted' : `of ${fmt(r.planned)}`}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 ml-8">
+                        <div className="flex-1 bg-gray-100 rounded-full h-1 overflow-hidden">
+                          <div className={`h-full rounded-full bar-fill ${tone.bar}`}
+                            style={{ width: `${Number.isFinite(r.pct) ? Math.min(r.pct, 100) : 100}%` }} />
+                        </div>
+                        <span className={`text-[10px] font-medium shrink-0 ${tone.text}`}>{pctText(r.pct)}</span>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0 ${
+                          r.unplanned ? 'bg-gray-100 text-gray-600'
+                            : r.variance > 0 ? 'bg-red-50 text-red-600' : 'bg-emerald-50 text-emerald-700'}`}>
+                          {r.unplanned ? 'Unplanned'
+                            : r.variance > 0 ? `${fmt(r.variance)} over` : `${fmt(-r.variance)} left`}
+                        </span>
+                      </div>
+                      {/* under budget now, but on track to blow it */}
+                      {monthMeta.isCurrent && r.planned > 0 && r.variance <= 0 && r.projVariance > 0 && (
+                        <p className="text-[10px] text-amber-600 ml-8 mt-1">On pace for {fmt(r.projected)} — {fmt(r.projVariance)} over plan</p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+
+              <button onClick={() => { handleResetFromActuals(); setTab('plan') }}
+                className="w-full border border-gray-200 rounded-lg py-2 text-xs text-gray-600 hover:border-black hover:text-black transition-all">
+                Copy actuals into plan
+              </button>
+            </>)}
+          </>)}
+
+          {/* ── TAB 3: SCENARIOS ── */}
           {tab === 'scenarios' && (<>
             <p className="text-xs text-gray-400">Compare budget scenarios — apply one to load it into the Planner.</p>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
               <ScenarioCard
-                name="Frugal" scenarioKey="frugal" budgetSet={frugalBudgets}
+                name="Frugal" scenarioKey="frugal" budgetSet={frugalBudgets} index={0}
+                simIncome={simIncome} simFixedTotal={simFixedTotal}
+                activeScenario={activeScenario} onApply={handleApplyScenario}
                 icon={<TrendingDown size={13} />}
                 desc="−30% across all variable budgets. Maximize savings." />
               <ScenarioCard
-                name="Normal" scenarioKey="normal" budgetSet={normalBudgets}
+                name="Normal" scenarioKey="normal" budgetSet={normalBudgets} index={1}
+                simIncome={simIncome} simFixedTotal={simFixedTotal}
+                activeScenario={activeScenario} onApply={handleApplyScenario}
                 icon={<BarChart2 size={13} />}
                 desc="Last month's actual spending. Steady and realistic." />
               <ScenarioCard
-                name="Ambitious" scenarioKey="ambitious" budgetSet={ambitiousBudgets}
+                name="Ambitious" scenarioKey="ambitious" budgetSet={ambitiousBudgets} index={2}
+                simIncome={simIncome} simFixedTotal={simFixedTotal}
+                activeScenario={activeScenario} onApply={handleApplyScenario}
                 icon={<Target size={13} />}
                 desc="Optimized around your savings goals. Goal-focused." />
             </div>
@@ -2163,7 +2656,7 @@ function BudgetSimulatorModal({
                 <div>
                   <p className="text-sm font-semibold text-black">{fmt(simVariableTotal)} variable</p>
                   <p className={`text-xs ${simSurplus >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                    {simSurplus >= 0 ? '+' : ''}{fmt(Math.abs(Math.round(simSurplus)))} surplus · {simSavingsRate.toFixed(0)}% saved
+                    {simSurplus >= 0 ? '+' : ''}{fmt(Math.abs(Math.round(simSurplus)))} surplus · {pctText(simSavingsRate)} saved
                   </p>
                 </div>
                 {activeScenario !== 'custom' && (
@@ -2247,7 +2740,13 @@ function BudgetSimulatorModal({
           </>)}
 
         </div>
+        </div>
       </div>
+
+      {confirmDeleteProfile && (
+        <DeleteConfirm title={activeProfile?.name || 'this plan'} deleting={deletingProfile}
+          onCancel={() => setConfirmDeleteProfile(false)} onConfirm={handleDeleteProfile} />
+      )}
     </div>
   )
 }
@@ -2330,6 +2829,9 @@ export default function Dashboard() {
   const [showAddPool, setShowAddPool]         = useState(false)
   const [loggingPool, setLoggingPool]         = useState<ExpensePool | null>(null)
   const [openPool, setOpenPool]               = useState<ExpensePool | null>(null)
+  const [openDay, setOpenDay]                 = useState<number | null>(null)
+  const [dailyOpen, setDailyOpen]             = useState(false)   // collapsed by default
+  const [showDailyPatterns, setShowDailyPatterns] = useState(false)
   const [splitBills, setSplitBills]           = useState<SplitBill[]>([])
   const [billParticipants, setBillParticipants] = useState<SplitBillParticipant[]>([])
   const [showAddSplitBill, setShowAddSplitBill] = useState(false)
@@ -2341,20 +2843,29 @@ export default function Dashboard() {
   const [openDebt, setOpenDebt]               = useState<Debt | null>(null)
   const [showSimulator, setShowSimulator]     = useState(false)
   const [menuOpen, setMenuOpen]               = useState(false)
+  const [deskMenuOpen, setDeskMenuOpen]       = useState(false)
   const menuRef = useRef<HTMLDivElement>(null)
+  const deskMenuRef = useRef<HTMLDivElement>(null)
   const router  = useRouter()
 
   useEffect(() => { init() }, [])
-  useEffect(() => { setCatSliceSelected(null) }, [selectedMonth])
+  // Day 30 must not stay open when switching to February.
+  useEffect(() => { setCatSliceSelected(null); setOpenDay(null) }, [selectedMonth])
   useEffect(() => {
     document.querySelector(`[data-tab="${dashboardTab}"]`)?.scrollIntoView({ behavior: 'smooth', inline: 'nearest', block: 'nearest' })
   }, [dashboardTab])
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuOpen(false)
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Node
+      if (menuRef.current && !menuRef.current.contains(t)) setMenuOpen(false)
+      if (deskMenuRef.current && !deskMenuRef.current.contains(t)) setDeskMenuOpen(false)
     }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') { setMenuOpen(false); setDeskMenuOpen(false) }
+    }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
   }, [])
 
   // Beginner/Expert view preference (read client-side to avoid hydration mismatch; default beginner)
@@ -2781,6 +3292,98 @@ export default function Dashboard() {
     return weeks
   }, [thisMonthExpenses, selectedMonth])
 
+  // ── Daily spending ──────────────────────────────────────────────────────────
+  // Day bucketing is LOCAL-time only: created_at is written timezone-naive by
+  // localISOString(), so toISOString() would shift late-evening expenses into
+  // the next day. Same idiom as dailyBalanceSeries below.
+  const dailySpend = useMemo<DailySpendData>(() => {
+    const [yr, mo] = selectedMonth.split('-').map(Number)
+    const daysInMonth = new Date(yr, mo, 0).getDate()
+    const now = new Date()
+    const isCurrentMonth = yr === now.getFullYear() && mo === now.getMonth() + 1
+    const isFutureMonth  = yr > now.getFullYear() || (yr === now.getFullYear() && mo > now.getMonth() + 1)
+    const todayDay    = isCurrentMonth ? now.getDate() : null
+    const elapsedDays = isFutureMonth ? 0 : isCurrentMonth ? now.getDate() : daysInMonth
+
+    const totals = new Array<number>(daysInMonth).fill(0)
+    const counts = new Array<number>(daysInMonth).fill(0)
+    thisMonthExpenses.forEach(e => {
+      const d = new Date(e.created_at).getDate()
+      if (d >= 1 && d <= daysInMonth) { totals[d - 1] += e.amount; counts[d - 1] += 1 }
+    })
+
+    const firstDow = new Date(yr, mo - 1, 1).getDay()      // 0 = Sunday
+    const days: DaySpend[] = totals.map((total, i) => ({
+      day: i + 1,
+      dow: (firstDow + i) % 7,
+      total, count: counts[i],
+      // A day that hasn't happened is NOT a no-spend day.
+      isFuture: i + 1 > elapsedDays,
+      isToday: i + 1 === todayDay,
+    }))
+
+    const elapsed = days.filter(d => !d.isFuture)
+    const active  = elapsed.filter(d => d.total > 0).map(d => d.total).sort((a, b) => a - b)
+    const median  = active.length === 0 ? 0
+      : active.length % 2 ? active[(active.length - 1) / 2]
+      : (active[active.length / 2 - 1] + active[active.length / 2]) / 2
+
+    return {
+      days, daysInMonth,
+      leadingBlanks: (firstDow + 6) % 7,                   // Monday-first
+      elapsedDays, isCurrentMonth, todayDay,
+      monthTotal: totals.reduce((s, v) => s + v, 0),
+      maxDay: elapsed.length ? Math.max(...elapsed.map(d => d.total)) : 0,
+      spentDayCount: active.length,
+      noSpendDayCount: elapsed.length - active.length,
+      avgPerActiveDay: active.length ? active.reduce((s, v) => s + v, 0) / active.length : 0,
+      medianActiveDay: median,
+    }
+  }, [thisMonthExpenses, selectedMonth])
+
+  // Averages divide by elapsed OCCURRENCES of each weekday — not by 7, and not
+  // by the calendar count. A Friday that happened with zero spend counts; a
+  // Friday that hasn't arrived yet does not.
+  const dowStats = useMemo<DowStat[]>(() => {
+    const sum = new Array(7).fill(0), occ = new Array(7).fill(0), tx = new Array(7).fill(0)
+    dailySpend.days.forEach(d => {
+      if (d.isFuture) return
+      const col = (d.dow + 6) % 7                          // Monday-first column
+      sum[col] += d.total; occ[col] += 1; tx[col] += d.count
+    })
+    return WEEKDAY_LABELS.map((label, i) => ({
+      idx: i, label, total: sum[i], occurrences: occ[i],
+      avg: occ[i] ? sum[i] / occ[i] : 0, txCount: tx[i],
+    }))
+  }, [dailySpend])
+
+  const dailyRecords = useMemo<DailyRecords>(() => {
+    const elapsed = dailySpend.days.filter(d => !d.isFuture)
+    const spent   = elapsed.filter(d => d.total > 0)
+    const highest  = spent.reduce<DaySpend | null>((m, d) => !m || d.total > m.total ? d : m, null)
+    const quietest = spent.reduce<DaySpend | null>((m, d) => !m || d.total < m.total ? d : m, null)
+
+    let longest = 0, run = 0, longestEnd = 0
+    elapsed.forEach(d => {
+      if (d.total === 0) { run++; if (run > longest) { longest = run; longestEnd = d.day } }
+      else run = 0
+    })
+    let current = 0
+    for (let i = elapsed.length - 1; i >= 0 && elapsed[i].total === 0; i--) current++
+
+    const withData = dowStats.filter(s => s.occurrences > 0)
+    const wkndOcc = dowStats[5].occurrences + dowStats[6].occurrences
+    const wdayOcc = dowStats.slice(0, 5).reduce((s, x) => s + x.occurrences, 0)
+    return {
+      highest, quietest, longestNoSpend: longest, longestNoSpendEnd: longestEnd,
+      currentNoSpend: current,
+      heaviestDow: withData.reduce<DowStat | null>((m, s) => !m || s.avg > m.avg ? s : m, null),
+      lightestDow: withData.reduce<DowStat | null>((m, s) => !m || s.avg < m.avg ? s : m, null),
+      weekendAvg: wkndOcc ? (dowStats[5].total + dowStats[6].total) / wkndOcc : 0,
+      weekdayAvg: wdayOcc ? dowStats.slice(0, 5).reduce((s, x) => s + x.total, 0) / wdayOcc : 0,
+    }
+  }, [dailySpend, dowStats])
+
   const maxMonthly = Math.max(...last6Months.map(m => m.total), 1)
   const maxWeekly  = Math.max(...weeklyData.map(w => w.total), 1)
 
@@ -2917,6 +3520,43 @@ export default function Dashboard() {
         .thin-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .thin-scrollbar::-webkit-scrollbar-thumb { background: #d1d5db; border-radius: 9999px; }
         .thin-scrollbar::-webkit-scrollbar-thumb:hover { background: #9ca3af; }
+
+        /* ── Budget simulator ─────────────────────────────────────────── */
+        .tab-indicator { transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1); }
+        .bar-fill { transition: width 0.35s cubic-bezier(0.4,0,0.2,1), background-color 0.25s ease; }
+
+        .budget-slider { -webkit-appearance: none; appearance: none; width: 100%; height: 14px; background: transparent; cursor: pointer; }
+        .budget-slider::-webkit-slider-runnable-track { height: 4px; border-radius: 9999px; background: var(--track); transition: background 0.25s ease; }
+        .budget-slider::-moz-range-track { height: 4px; border-radius: 9999px; background: var(--track); transition: background 0.25s ease; }
+        .budget-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 11px; height: 11px; margin-top: -3.5px; border-radius: 9999px; background: #111110; border: 2px solid #fff; box-shadow: 0 0 0 1px rgba(0,0,0,.14); transition: transform 0.15s ease, box-shadow 0.15s ease; }
+        .budget-slider::-moz-range-thumb { width: 11px; height: 11px; border: 2px solid #fff; border-radius: 9999px; background: #111110; box-shadow: 0 0 0 1px rgba(0,0,0,.14); }
+        .budget-slider:hover::-webkit-slider-thumb { transform: scale(1.25); }
+        .budget-slider:focus-visible { outline: none; }
+        .budget-slider:focus-visible::-webkit-slider-thumb { transform: scale(1.25); box-shadow: 0 0 0 3px rgba(17,17,16,.18); }
+        .budget-slider:disabled { cursor: not-allowed; opacity: .45; }
+        /* the row under the thumb tracks the pointer 1:1 while other rows animate */
+        .budget-slider.dragging::-webkit-slider-runnable-track { transition: none; }
+        .budget-slider.dragging::-moz-range-track { transition: none; }
+
+        @keyframes valuePulse { from { opacity: .4; transform: translateY(-1px); } to { opacity: 1; transform: none; } }
+        .value-pulse { animation: valuePulse 0.25s ease both; }
+        @keyframes surplusPop { 0% { transform: scale(.94); } 60% { transform: scale(1.04); } 100% { transform: scale(1); } }
+        .surplus-pop { animation: surplusPop 0.35s cubic-bezier(0.34,1.56,0.64,1) both; }
+
+        /* ── Daily spending heatmap ───────────────────────────────────── */
+        @keyframes heatIn { from { transform: scale(.72); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+        .heat-cell { animation: heatIn .28s cubic-bezier(.34,1.56,.64,1) both;
+                     transition: transform .15s ease, box-shadow .15s ease; }
+        .heat-cell:hover { transform: scale(1.14); z-index: 5; }
+        .heat-bar { transition: height .4s cubic-bezier(.4,0,.2,1); }
+
+        @media (prefers-reduced-motion: reduce) {
+          .animate-slide-up, .stat-card, .row-item, .animate-pop-in, .legend-row,
+          .value-pulse, .surplus-pop, .heat-cell { animation: none !important; }
+          .tab-indicator, .bar-fill, .heat-bar, .budget-slider::-webkit-slider-runnable-track,
+          .budget-slider::-webkit-slider-thumb { transition: none !important; }
+          .stat-card:hover, .heat-cell:hover { transform: none; }
+        }
       `}</style>
 
       {viewMode === 'expert' ? (
@@ -2928,6 +3568,7 @@ export default function Dashboard() {
           thisMonthIncomeTot={thisMonthIncomeTot} thisMonthTotal={thisMonthTotal} lastMonthTotal={lastMonthTotal}
           monthOverMonthPct={monthOverMonthPct} spendingRate={spendingRate} avgPerDay={avgPerDay}
           safeToSpendPerDay={safeToSpendPerDay} savingsRatePct={savingsRatePct} dailyBalanceSeries={dailyBalanceSeries}
+          dailySpend={dailySpend} dowStats={dowStats} dailyRecords={dailyRecords} setOpenDay={setOpenDay}
           monthlyProgress={monthlyProgress} primaryGoal={primaryGoal}
           categoryTotals={categoryTotals} weeklyData={weeklyData} maxMonthly={maxMonthly} maxWeekly={maxWeekly}
           chartView={chartView} setChartView={setChartView}
@@ -2972,13 +3613,9 @@ export default function Dashboard() {
               </div>
             </div>
             <div className="hidden sm:flex items-center gap-2">
-              <button onClick={() => setShowSearch(v => !v)}
+              <button onClick={() => setShowSearch(v => !v)} title="Search"
                 className={`p-1.5 border rounded-lg transition-all ${showSearch ? 'bg-black border-black text-white' : 'border-gray-200 text-gray-600 hover:border-black hover:bg-gray-50'}`}>
                 <Search size={14} />
-              </button>
-              <button onClick={() => setShowSimulator(true)}
-                className="flex items-center gap-1.5 border border-gray-200 hover:border-black hover:bg-gray-50 text-gray-600 hover:text-black px-3 py-1.5 rounded-lg text-sm font-medium transition-all active:scale-[.98]">
-                <Calculator size={14} /> Simulate
               </button>
               <button onClick={() => setShowAddIncome(true)}
                 className="flex items-center gap-1.5 border border-gray-200 hover:border-black hover:bg-gray-50 text-gray-600 hover:text-black px-3 py-1.5 rounded-lg text-sm font-medium transition-all active:scale-[.98]">
@@ -2988,14 +3625,23 @@ export default function Dashboard() {
                 className="flex items-center gap-1.5 bg-black hover:bg-gray-800 active:scale-[.98] text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all">
                 <ArrowDownCircle size={14} /> Expenses
               </button>
-              <button onClick={() => setShowSettings(true)} title="Settings"
-                className="flex items-center border border-gray-200 hover:border-black hover:bg-gray-50 active:scale-[.98] text-gray-600 hover:text-black p-1.5 rounded-lg transition-all">
-                <Settings size={15} />
-              </button>
-              <button onClick={handleLogout}
-                className="flex items-center border border-gray-200 hover:border-black hover:bg-gray-50 active:scale-[.98] text-gray-600 hover:text-black p-1.5 rounded-lg transition-all">
-                <LogOut size={15} />
-              </button>
+              <div className="relative" ref={deskMenuRef}>
+                <button onClick={() => setDeskMenuOpen(v => !v)} title="More"
+                  aria-haspopup="menu" aria-expanded={deskMenuOpen}
+                  className={`flex items-center border rounded-lg p-1.5 transition-all active:scale-[.98] ${deskMenuOpen ? 'bg-black border-black text-white' : 'border-gray-200 text-gray-600 hover:border-black hover:bg-gray-50 hover:text-black'}`}>
+                  <MoreHorizontal size={15} />
+                </button>
+                {deskMenuOpen && (
+                  <div className="absolute right-0 top-full mt-1.5 w-44 bg-white border border-gray-100 rounded-xl shadow-lg z-[200] py-1.5 animate-slide-up">
+                    <button onClick={() => { setShowSimulator(true); setDeskMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><Calculator size={14} className="text-purple-500" /> Budget Simulator</button>
+                    <button onClick={() => { setShowAddBill(true); setDeskMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><CreditCard size={14} className="text-blue-500" /> Add Bill</button>
+                    <button onClick={() => { exportCSV(expenses, income, selectedMonth); setDeskMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><Download size={14} className="text-gray-500" /> Export CSV</button>
+                    <button onClick={() => { setShowSettings(true); setDeskMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><Settings size={14} className="text-gray-500" /> Settings</button>
+                    <div className="h-px bg-gray-100 my-1" />
+                    <button onClick={() => { handleLogout(); setDeskMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-red-500 hover:bg-red-50"><LogOut size={14} /> Logout</button>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="flex sm:hidden items-center gap-1.5" ref={menuRef}>
               <button onClick={() => setShowSearch(v => !v)}
@@ -3184,6 +3830,98 @@ export default function Dashboard() {
                 <p className={`text-xs mt-1 flex items-center gap-1 ${s.color}`}>{s.icon}<span className="truncate">{s.sub}</span></p>
               </div>
             ))}
+          </div>
+
+          {/* ── Daily spending ── */}
+          {/* Collapsed by default. Content is conditionally rendered rather than
+              height-animated: a max-height wrapper needs overflow:hidden, which
+              would clip the heatmap's hover tooltip while open. */}
+          <div className="border border-gray-100 rounded-xl p-4 mb-4">
+            <button onClick={() => setDailyOpen(v => !v)}
+              aria-expanded={dailyOpen}
+              className="w-full flex items-center justify-between gap-2 text-left group">
+              <div className="flex items-center gap-2 min-w-0">
+                <CalendarDays size={13} className="text-gray-400 shrink-0" />
+                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide group-hover:text-black transition-colors">Daily spending</p>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                {!dailyOpen && dailySpend.elapsedDays > 0 && (
+                  <span className="text-[10px] text-gray-400 truncate">
+                    {dailySpend.spentDayCount === 0
+                      ? 'No spending yet'
+                      : `${fmt(Math.round(dailySpend.medianActiveDay))} typical day`}
+                  </span>
+                )}
+                <span className="text-[10px] text-gray-300">{getMonthLabelFull(selectedMonth)}</span>
+                <ChevronDown size={13} className={`text-gray-300 transition-transform duration-300 ${dailyOpen ? 'rotate-0' : '-rotate-90'}`} />
+              </div>
+            </button>
+
+            {dailyOpen && (<div className="animate-slide-up mt-3">
+            {dailySpend.elapsedDays === 0 ? (
+              <p className="text-xs text-gray-300 text-center py-8">This month hasn't started yet</p>
+            ) : (<>
+              {/* Plain-English answer, so the chart is optional reading */}
+              <p className="text-xs text-gray-500 leading-relaxed mb-3">
+                {dailySpend.spentDayCount === 0
+                  ? `No spending recorded in ${getMonthLabelFull(selectedMonth)} yet.`
+                  : <>
+                      You spent on <strong className="text-black font-medium">{dailySpend.spentDayCount}</strong> of {dailySpend.elapsedDays} days
+                      {dailySpend.medianActiveDay > 0 && <>, typically <strong className="text-black font-medium">{fmt(Math.round(dailySpend.medianActiveDay))}</strong> a day</>}.
+                      {dailyRecords.heaviestDow && dailyRecords.heaviestDow.avg > 0 && (
+                        <> {dailyRecords.heaviestDow.label}s are your heaviest — {fmt(Math.round(dailyRecords.heaviestDow.avg))} on average.</>
+                      )}
+                    </>}
+              </p>
+
+              <SpendingHeatmap data={dailySpend} monthKey={selectedMonth} size="compact" onSelectDay={setOpenDay} />
+              <WeekdayBars stats={dowStats} size="compact" />
+
+              <p className="text-[10px] text-gray-300 text-center mt-2">Tap any day to see what you spent</p>
+
+              {dailySpend.spentDayCount > 0 && (<>
+                <button onClick={() => setShowDailyPatterns(v => !v)}
+                  className="w-full flex items-center justify-center gap-1 mt-3 pt-3 border-t border-gray-100 text-[11px] font-medium text-gray-400 hover:text-black transition-colors">
+                  {showDailyPatterns ? 'Hide patterns' : 'Show patterns'}
+                  <ChevronDown size={12} className={`transition-transform duration-300 ${showDailyPatterns ? 'rotate-180' : ''}`} />
+                </button>
+                <div style={{ maxHeight: showDailyPatterns ? '600px' : '0px', opacity: showDailyPatterns ? 1 : 0, transition: 'max-height 0.35s ease, opacity 0.25s ease', overflow: 'hidden' }}>
+                  <div className="grid grid-cols-2 gap-2 pt-3">
+                    {[
+                      { label: 'Typical day', value: fmt(Math.round(dailySpend.medianActiveDay)), sub: 'what a normal day costs', day: null as number | null },
+                      { label: 'Highest day', value: dailyRecords.highest ? fmt(dailyRecords.highest.total) : '—',
+                        sub: dailyRecords.highest ? `${MONTHS_SHORT[Number(selectedMonth.split('-')[1]) - 1]} ${dailyRecords.highest.day}` : 'no spending yet',
+                        day: dailyRecords.highest?.day ?? null },
+                      { label: 'No-spend days', value: String(dailySpend.noSpendDayCount), sub: `of ${dailySpend.elapsedDays} days so far`, day: null },
+                      { label: 'Longest streak', value: `${dailyRecords.longestNoSpend} ${dailyRecords.longestNoSpend === 1 ? 'day' : 'days'}`, sub: 'no spending in a row', day: null },
+                    ].map(t => (
+                      <button key={t.label} disabled={t.day === null} onClick={() => t.day !== null && setOpenDay(t.day)}
+                        className={`bg-gray-50 rounded-xl p-3 text-left transition-all ${t.day !== null ? 'hover:bg-gray-100 active:scale-[.98] cursor-pointer' : 'cursor-default'}`}>
+                        <p className="text-[10px] text-gray-400 mb-0.5">{t.label}</p>
+                        <p className="text-sm font-medium text-black truncate">{t.value}</p>
+                        <p className="text-[10px] text-gray-400 mt-0.5 truncate">{t.sub}</p>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex flex-col gap-1.5 pt-3">
+                    {dowStats.map(s => (
+                      <div key={s.idx} className="flex items-center gap-2">
+                        <span className="text-[11px] text-gray-500 w-8 shrink-0">{s.label}</span>
+                        <div className="flex-1 bg-gray-100 rounded-full h-1 overflow-hidden">
+                          <div className="h-full rounded-full bar-fill"
+                            style={{ width: `${s.occurrences === 0 ? 0 : (s.avg / Math.max(...dowStats.map(x => x.avg), 1)) * 100}%`,
+                                     backgroundColor: dailyRecords.heaviestDow?.idx === s.idx ? HEAT_COLORS[4] : HEAT_COLORS[2] }} />
+                        </div>
+                        <span className="text-[10px] text-gray-400 w-24 text-right shrink-0">
+                          {s.occurrences === 0 ? '—' : `${fmt(Math.round(s.avg))} avg`}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>)}
+            </>)}
+            </div>)}
           </div>
 
           {/* ── Charts ── */}
@@ -3903,6 +4641,31 @@ export default function Dashboard() {
       {showAddDebt    && <AddDebtModal onClose={() => setShowAddDebt(false)} onSave={handleAddDebt} />}
       {loggingDebt    && (() => { const stats = debtsWithStats.find(s => s.debt.id === loggingDebt.id); return stats ? <LogDebtPaymentModal debt={loggingDebt} remaining={stats.remaining} onClose={() => setLoggingDebt(null)} onSave={(amt, note) => handleLogDebtPayment(loggingDebt.id, amt, note)} /> : null })()}
       {openDebt       && (() => { const stats = debtsWithStats.find(s => s.debt.id === openDebt.id); return stats ? <DebtDetailModal stats={stats} onClose={() => setOpenDebt(null)} onOpenLog={() => { setLoggingDebt(openDebt); setOpenDebt(null) }} onDeletePayment={handleDeleteDebtPayment} onEditDebt={(u) => handleEditDebt(openDebt.id, u)} onArchiveDebt={() => handleArchiveDebt(openDebt.id)} /> : null })()}
+      {openDay !== null && (() => {
+        const dayData = dailySpend.days[openDay - 1]
+        if (!dayData) return null
+        // Derived per render (not snapshotted) so edits/deletes update live.
+        const dayExpenses = thisMonthExpenses
+          .filter(e => new Date(e.created_at).getDate() === openDay)
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+        const dayIncome = thisMonthIncome.filter(i => new Date(i.created_at).getDate() === openDay)
+        const rank = dayData.total > 0
+          ? dailySpend.days.filter(d => !d.isFuture && d.total > dayData.total).length + 1
+          : null
+        return (
+          <DayDetailModal
+            day={openDay} monthKey={selectedMonth} dayData={dayData}
+            dayExpenses={dayExpenses} dayIncome={dayIncome}
+            avgPerDay={avgPerDay} maxDay={dailySpend.maxDay} rank={rank}
+            spentDayCount={dailySpend.spentDayCount} elapsedDays={dailySpend.elapsedDays}
+            onClose={() => setOpenDay(null)}
+            onStepDay={d => setOpenDay(prev => prev === null ? prev : Math.min(Math.max(prev + d, 1), dailySpend.elapsedDays))}
+            canPrev={openDay > 1} canNext={openDay < dailySpend.elapsedDays}
+            onEditExpense={e => { setOpenDay(null); setEditingExpense(e) }}
+            onDeleteExpense={e => { setOpenDay(null); setDeletingExpense(e) }}
+          />
+        )
+      })()}
     </>
   )
 }

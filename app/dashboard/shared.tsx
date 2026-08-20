@@ -3,7 +3,7 @@
 // ─── Shared types, constants, utils and small components used by both the
 //     Beginner and Expert dashboard views. Moved verbatim from page.tsx. ─────
 
-import { useEffect, useState, useRef, useId } from 'react'
+import { useEffect, useState, useRef, useId, useMemo } from 'react'
 import ReactDOM from 'react-dom'
 import {
   UtensilsCrossed, Car, ShoppingBag, HeartPulse, User, Home, Zap, Tv,
@@ -81,6 +81,34 @@ export interface DebtPayment {
 export interface DebtWithStats {
   debt: Debt; payments: DebtPayment[]
   paid: number; remaining: number; pct: number; settled: boolean; overdue: boolean
+}
+
+// ─── Daily spending ───────────────────────────────────────────────────────────
+export interface DaySpend {
+  day: number        // 1..daysInMonth
+  dow: number        // 0=Sun .. 6=Sat (local weekday)
+  total: number      // expenses only
+  count: number      // transaction count
+  isFuture: boolean  // hasn't happened yet — never the same as "spent nothing"
+  isToday: boolean
+}
+export interface DailySpendData {
+  days: DaySpend[]; daysInMonth: number; leadingBlanks: number
+  elapsedDays: number; isCurrentMonth: boolean; todayDay: number | null
+  monthTotal: number; maxDay: number
+  spentDayCount: number; noSpendDayCount: number
+  avgPerActiveDay: number; medianActiveDay: number
+}
+export interface DowStat {
+  idx: number; label: string; total: number
+  occurrences: number; avg: number; txCount: number
+}
+export interface DailyRecords {
+  highest: DaySpend | null; quietest: DaySpend | null
+  longestNoSpend: number; longestNoSpendEnd: number
+  currentNoSpend: number
+  heaviestDow: DowStat | null; lightestDow: DowStat | null
+  weekendAvg: number; weekdayAvg: number
 }
 
 export const CATEGORY_CONFIG: Record<Category, { label: string; icon: React.ReactNode; bg: string; text: string }> = {
@@ -162,6 +190,55 @@ export function nextDueDate(current: string, frequency: Frequency): string {
   if (frequency === 'weekly')  d.setDate(d.getDate() + 7)
   if (frequency === 'monthly') d.setMonth(d.getMonth() + 1)
   return d.toISOString().slice(0, 10)
+}
+
+// Normalize a recurring amount to its monthly equivalent (52 weeks / 12 months = 4.33)
+export function monthlyEquivalent(amount: number, frequency: Frequency): number {
+  return frequency === 'daily' ? amount * 30 : frequency === 'weekly' ? amount * 4.33 : amount
+}
+// Percentage text — guards Infinity/NaN so "Infinity%" can never render
+export function pctText(n: number, digits = 0): string {
+  return Number.isFinite(n) ? `${n.toFixed(digits)}%` : '—'
+}
+// Budget-usage colour ramp. Class strings stay whole literals for Tailwind's scanner.
+export function usageTone(pct: number): { bar: string; text: string; chip: string } {
+  if (!Number.isFinite(pct) || pct >= 100) return { bar: 'bg-red-500',   text: 'text-red-600',   chip: 'bg-red-50 text-red-600' }
+  if (pct >= 80)                           return { bar: 'bg-amber-500', text: 'text-amber-600', chip: 'bg-amber-50 text-amber-700' }
+  return                                          { bar: 'bg-gray-900',  text: 'text-gray-600',  chip: 'bg-gray-100 text-gray-600' }
+}
+// Savings-rate colour ramp
+export function savingsTone(rate: number): { text: string; chip: string } {
+  if (rate >= 20) return { text: 'text-emerald-600', chip: 'bg-emerald-50 text-emerald-700' }
+  if (rate >= 10) return { text: 'text-amber-600',   chip: 'bg-amber-50 text-amber-700' }
+  return          { text: 'text-red-500',            chip: 'bg-red-50 text-red-600' }
+}
+
+// Monday-first: ISO / Indonesian convention, and it keeps Sat+Sun adjacent so
+// the weekend reads as one visual block.
+export const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+// Warm sequential "heat" ramp (yellow -> amber -> orange -> deep red).
+// Sequential, not traffic-light: it says "more", never "bad". Luminance drops
+// monotonically so it still reads correctly in grayscale and for red-green
+// colour blindness — which a green-to-red ramp would not.
+export const HEAT_COLORS = ['#ffffff', '#fef3c7', '#fdba74', '#f97316', '#b91c1c']
+
+/**
+ * Heat level 0-4 per day, by quantile (empirical-CDF rank) over elapsed days
+ * that had spending — NOT linear against the max. With rent of Rp 5.000.000 on
+ * the 1st and ~Rp 80.000 on other days, a max-relative scale would render one
+ * black square in a sea of white and destroy all real variation.
+ */
+export function heatLevels(days: DaySpend[]): number[] {
+  const active = days.filter(d => !d.isFuture && d.total > 0)
+                     .map(d => d.total).sort((a, b) => a - b)
+  if (active.length === 0) return days.map(() => 0)
+  const lo = active[0], hi = active[active.length - 1]
+  return days.map(d => {
+    if (d.isFuture || d.total === 0) return 0
+    if (hi === lo) return 3                   // flat month -> uniform mid tone
+    const rank = active.filter(v => v <= d.total).length
+    return Math.min(4, Math.max(1, Math.ceil((rank / active.length) * 4)))
+  })
 }
 
 export function localISOString(): string {
@@ -486,6 +563,188 @@ export function CatIcon({ category, size = 36 }: { category: Category; size?: nu
   return (
     <div className={`rounded-xl ${cfg.bg} ${cfg.text} flex items-center justify-center shrink-0`} style={{ width: size, height: size }}>
       {cfg.icon}
+    </div>
+  )
+}
+
+// ─── Daily spending heatmap ───────────────────────────────────────────────────
+export function SpendingHeatmap({
+  data, monthKey, size = 'compact', onSelectDay, showLegend = true,
+}: {
+  data: DailySpendData; monthKey: string
+  size?: 'compact' | 'comfortable'
+  onSelectDay?: (day: number) => void
+  showLegend?: boolean
+}) {
+  const [hover, setHover] = useState<number | null>(null)
+  const [focusDay, setFocusDay] = useState<number>(data.todayDay ?? 1)
+  const usedKeyboard = useRef(false)
+  const gridRef = useRef<HTMLDivElement>(null)
+  const [yr, mo] = monthKey.split('-').map(Number)
+
+  const levels = useMemo(() => heatLevels(data.days), [data.days])
+  const compact = size === 'compact'
+
+  useEffect(() => { setFocusDay(data.todayDay ?? 1); usedKeyboard.current = false }, [monthKey, data.todayDay])
+  useEffect(() => {
+    if (!usedKeyboard.current) return          // never steal focus on mount
+    gridRef.current?.querySelector<HTMLElement>(`[data-day="${focusDay}"]`)?.focus()
+  }, [focusDay])
+
+  const maxFocusable = Math.max(data.elapsedDays, 1)
+  const onKeyDown = (e: React.KeyboardEvent, day: number) => {
+    let next: number | null = null
+    if (e.key === 'ArrowRight') next = day + 1
+    else if (e.key === 'ArrowLeft') next = day - 1
+    else if (e.key === 'ArrowDown') next = day + 7
+    else if (e.key === 'ArrowUp') next = day - 7
+    else if (e.key === 'Home') next = day - ((data.leadingBlanks + day - 1) % 7)
+    else if (e.key === 'End') next = day + (6 - ((data.leadingBlanks + day - 1) % 7))
+    else if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelectDay?.(day); return }
+    else return
+    e.preventDefault()
+    usedKeyboard.current = true
+    setFocusDay(Math.min(Math.max(next, 1), maxFocusable))
+  }
+
+  const dateLabel = (day: number) =>
+    new Date(yr, mo - 1, day).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })
+
+  const hoverDay = hover !== null ? data.days[hover - 1] : null
+  const hoverCol = hoverDay ? (data.leadingBlanks + hoverDay.day - 1) % 7 : 0
+  const hoverRow = hoverDay ? Math.floor((data.leadingBlanks + hoverDay.day - 1) / 7) : 0
+
+  return (
+    <div className={`w-full mx-auto ${compact ? 'max-w-[360px]' : 'max-w-[520px]'}`}>
+      <div className="relative" ref={gridRef}>
+        {/* Tooltip — owned by the grid so it can escape individual cells */}
+        {hoverDay && (
+          <div
+            className="absolute px-2 py-1 rounded-md bg-black text-white text-[11px] font-medium whitespace-nowrap pointer-events-none -translate-x-1/2 z-10"
+            style={{
+              left: `${Math.min(Math.max(((hoverCol + 0.5) / 7) * 100, 14), 86)}%`,
+              top: `calc(${hoverRow} * ((100% - 1.25rem) / ${Math.ceil((data.leadingBlanks + data.daysInMonth) / 7)}) + 0.1rem)`,
+              transform: 'translate(-50%, -110%)',
+            }}>
+            {dateLabel(hoverDay.day)} · {hoverDay.total > 0 ? `${fmt(hoverDay.total)} · ${hoverDay.count} ${hoverDay.count === 1 ? 'transaction' : 'transactions'}` : 'No spending'}
+          </div>
+        )}
+
+        <div role="grid" aria-label={`Daily spending for ${getMonthLabelFull(monthKey)}`}>
+          <div role="row" className={`grid grid-cols-7 ${compact ? 'gap-1' : 'gap-1.5'} mb-1`}>
+            {WEEKDAY_LABELS.map((w, i) => (
+              <div key={w} role="columnheader" aria-label={w}
+                className={`text-center ${compact ? 'text-[9px]' : 'text-[10px]'} font-medium ${i >= 5 ? 'text-gray-300' : 'text-gray-400'}`}>
+                {compact ? w[0] : w}
+              </div>
+            ))}
+          </div>
+          <div className={`grid grid-cols-7 ${compact ? 'gap-1' : 'gap-1.5'}`}>
+            {Array.from({ length: data.leadingBlanks }).map((_, i) => <div key={`b${i}`} aria-hidden="true" />)}
+            {data.days.map((d, i) => {
+              const lvl = levels[i]
+              // Only the deepest tone is dark enough to need light text; white on
+              // orange-500 would fail contrast, dark warm text on it passes.
+              const onDark = lvl >= 4
+              const common = `heat-cell aspect-square ${compact ? 'rounded-md text-[9px]' : 'rounded-lg text-[10px]'} flex items-center justify-center font-medium select-none`
+              if (d.isFuture) {
+                return (
+                  <div key={d.day} role="gridcell" aria-disabled="true"
+                    aria-label={`${d.day} ${MONTHS[mo - 1]}, upcoming`}
+                    className={`${common} text-gray-200 cursor-default`}
+                    style={{ animationDelay: `${0.012 * i}s`, background: '#fff', border: '1px dashed #f0f0ee' }}>
+                    {d.day}
+                  </div>
+                )
+              }
+              return (
+                <button key={d.day} role="gridcell" data-day={d.day}
+                  tabIndex={d.day === focusDay ? 0 : -1}
+                  aria-label={`${d.day} ${MONTHS[mo - 1]}, ${d.total > 0 ? `${fmt(d.total)} across ${d.count} ${d.count === 1 ? 'transaction' : 'transactions'}` : 'no spending'}`}
+
+                  onMouseEnter={() => setHover(d.day)}
+                  onMouseLeave={() => setHover(h => h === d.day ? null : h)}
+                  onFocus={() => setHover(d.day)}
+                  onBlur={() => setHover(h => h === d.day ? null : h)}
+                  onKeyDown={e => onKeyDown(e, d.day)}
+                  onClick={() => onSelectDay?.(d.day)}
+                  className={`${common} ${onDark ? 'text-white' : lvl === 0 ? 'text-gray-400' : 'text-amber-950'} ${onSelectDay ? 'cursor-pointer' : 'cursor-default'} focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black`}
+                  style={{
+                    animationDelay: `${0.012 * i}s`,
+                    backgroundColor: HEAT_COLORS[lvl],
+                    border: lvl === 0 ? '1px solid #e5e7eb' : '1px solid transparent',
+                    boxShadow: d.isToday ? `inset 0 0 0 1.5px ${onDark ? '#ffffff' : '#111110'}` : undefined,
+                  }}>
+                  {d.day}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      </div>
+
+      {showLegend && (
+        <div className="flex items-center justify-between gap-2 mt-2.5 flex-wrap">
+          {data.spentDayCount > 0 ? (
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-gray-400">Less</span>
+              {HEAT_COLORS.map((c, i) => (
+                <span key={i} className="w-2.5 h-2.5 rounded-sm"
+                  style={{ backgroundColor: c, border: i === 0 ? '1px solid #e5e7eb' : '1px solid transparent' }} />
+              ))}
+              <span className="text-[10px] text-gray-400">More</span>
+            </div>
+          ) : <span />}
+          <div className="flex items-center gap-2.5">
+            <span className="flex items-center gap-1 text-[10px] text-gray-400">
+              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: '#fff', border: '1px solid #e5e7eb' }} /> No spending
+            </span>
+            {data.isCurrentMonth && (
+              <span className="flex items-center gap-1 text-[10px] text-gray-400">
+                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: '#fff', border: '1px dashed #d8d8d4' }} /> Upcoming
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ─── Weekday averages — column-aligned under the heatmap ──────────────────────
+export function WeekdayBars({ stats, size = 'compact' }: { stats: DowStat[]; size?: 'compact' | 'comfortable' }) {
+  const [hover, setHover] = useState<number | null>(null)
+  const compact = size === 'compact'
+  const maxAvg = Math.max(...stats.map(s => s.avg), 1)
+  const heaviest = stats.reduce<DowStat | null>((m, s) => s.occurrences > 0 && (!m || s.avg > m.avg) ? s : m, null)
+
+  return (
+    <div className={`w-full mx-auto ${compact ? 'max-w-[360px]' : 'max-w-[520px]'} mt-2`}>
+      <div className="relative">
+        {hover !== null && stats[hover].occurrences > 0 && (
+          <div className="absolute px-2 py-1 rounded-md bg-black text-white text-[11px] font-medium whitespace-nowrap pointer-events-none -translate-x-1/2 z-10 -top-1"
+            style={{ left: `${Math.min(Math.max(((hover + 0.5) / 7) * 100, 16), 84)}%`, transform: 'translate(-50%, -100%)' }}>
+            {stats[hover].label}s · {fmt(stats[hover].avg)} average · {stats[hover].occurrences} so far
+          </div>
+        )}
+        <div className={`grid grid-cols-7 ${compact ? 'gap-1' : 'gap-1.5'} items-end`} style={{ height: compact ? 40 : 52 }}>
+          {stats.map((s, i) => (
+            <div key={s.idx} className="h-full flex items-end justify-center"
+              onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(h => h === i ? null : h)}>
+              {s.occurrences === 0 ? (
+                <div className="w-full rounded-sm" style={{ height: 3, border: '1px dashed #eeeeec' }} />
+              ) : (
+                <div className="heat-bar w-full rounded-t-sm"
+                  style={{
+                    height: `${Math.max((s.avg / maxAvg) * 100, 3)}%`,
+                    backgroundColor: heaviest && s.idx === heaviest.idx ? HEAT_COLORS[4] : HEAT_COLORS[2],
+                  }} />
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+      <p className="text-[10px] text-gray-300 text-center mt-1.5">Average spending by weekday</p>
     </div>
   )
 }
