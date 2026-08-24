@@ -188,7 +188,7 @@ export default function RegisterPage() {
 
         {/* ── Form panel (left) ── */}
         <div className="right-panel">
-          <button className="right-back" onClick={() => router.push('/home')}>
+          <button className="right-back" onClick={() => router.push('/')}>
             <ArrowLeft size={13} />
             Back to home
           </button>

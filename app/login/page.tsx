@@ -255,7 +255,6 @@ export default function LoginPage() {
           pointer-events: none;
         }
 
-        /* FIXED: Back to home — route to /home */
         .right-back {
           position: absolute; top: 28px; left: 28px;
           display: flex; align-items: center; gap: 6px;
@@ -567,8 +566,7 @@ export default function LoginPage() {
 
         {/* ── Right panel ── */}
         <div className="right-panel">
-          {/* FIXED: Back to home routes to /home */}
-          <button className="right-back" onClick={() => router.push('/home')}>
+          <button className="right-back" onClick={() => router.push('/')}>
             <ArrowLeft size={13} />
             Back to home
           </button>
