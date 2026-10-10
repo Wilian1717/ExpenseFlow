@@ -58,7 +58,16 @@ export default function RegisterPage() {
     })
     setLoading(false)
 
-    if (signUpError) setError(signUpError.message)
+    if (signUpError) {
+      // The database trigger (enforce_registration_open) rejects sign-ups while
+      // registration is closed; Supabase reports that as a generic database error
+      if (signUpError.message.includes('Database error saving new user')) {
+        setRegistrationOpen(false)
+        setError('Registration is currently closed. Please contact the owner.')
+      } else {
+        setError(signUpError.message)
+      }
+    }
     else setSuccess(true)
   }
 

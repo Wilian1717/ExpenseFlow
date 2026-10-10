@@ -4,14 +4,14 @@ import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { Shield, LogOut, Users, ToggleLeft, ToggleRight, AlertTriangle, Check } from 'lucide-react'
 
-// ── Change this to your own secret password ──────────────────────────────────
-const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASS ?? ''
-// ─────────────────────────────────────────────────────────────────────────────
+// The admin password is checked inside Supabase (admin_check / admin_set_registration
+// in supabase/admin-registration.sql), so it never ships in the browser bundle.
 
 export default function AdminPage() {
   const [authed, setAuthed]             = useState(false)
   const [pass, setPass]                 = useState('')
   const [passError, setPassError]       = useState('')
+  const [checking, setChecking]         = useState(false)
   const [regEnabled, setRegEnabled]     = useState<boolean | null>(null)
   const [userCount, setUserCount]       = useState<number | null>(null)
   const [toggling, setToggling]         = useState(false)
@@ -42,8 +42,16 @@ export default function AdminPage() {
     setLoading(false)
   }
 
-  const handleLogin = () => {
-    if (pass === ADMIN_PASSWORD) {
+  const handleLogin = async () => {
+    if (!pass || checking) return
+    setChecking(true)
+    const { data, error } = await supabase.rpc('admin_check', { p_pass: pass })
+    setChecking(false)
+
+    if (error) {
+      setPassError('Admin setup missing. Run supabase/admin-registration.sql in Supabase.')
+    } else if (data === true) {
+      // Keep the password in memory; every toggle re-sends it for the database to check
       setAuthed(true)
       setPassError('')
     } else {
@@ -52,21 +60,28 @@ export default function AdminPage() {
     }
   }
 
+  const handleSignOut = () => {
+    setAuthed(false)
+    setPass('')
+  }
+
   const handleToggle = async () => {
     if (regEnabled === null) return
     setToggling(true)
     const newVal = !regEnabled
 
-    const { error } = await supabase
-      .from('app_settings')
-      .update({ value: String(newVal), updated_at: new Date().toISOString() })
-      .eq('key', 'registration_enabled')
+    const { data, error } = await supabase.rpc('admin_set_registration', {
+      p_pass: pass,
+      p_enabled: newVal,
+    })
 
-    if (!error) {
+    if (!error && data === true) {
       setRegEnabled(newVal)
       setSavedMsg(newVal ? 'Registration opened' : 'Registration closed')
-      setTimeout(() => setSavedMsg(''), 3000)
+    } else {
+      setSavedMsg('Not saved. Please try again.')
     }
+    setTimeout(() => setSavedMsg(''), 4000)
     setToggling(false)
   }
 
@@ -103,8 +118,8 @@ export default function AdminPage() {
               </div>
             )}
 
-            <button className="efa-btn-primary" onClick={handleLogin}>
-              Enter
+            <button className="efa-btn-primary" onClick={handleLogin} disabled={checking}>
+              {checking ? 'Checking...' : 'Enter'}
             </button>
           </div>
         </div>
@@ -132,7 +147,7 @@ export default function AdminPage() {
                 <p className="efa-header-sub">Registration control panel</p>
               </div>
             </div>
-            <button className="efa-logout" onClick={() => setAuthed(false)}>
+            <button className="efa-logout" onClick={handleSignOut}>
               <LogOut size={14} />
               Sign out
             </button>
