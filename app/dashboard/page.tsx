@@ -11,7 +11,8 @@ import {
   Lightbulb, AlertTriangle, Flag, Flame, Search, ChevronDown,
   User, Home, Zap, Menu, ChevronLeft, ChevronRight, History, CreditCard,
   MoreVertical, Undo2, Download, SlidersHorizontal, Tv, Eye, EyeOff, Calculator,
-  Users, UserPlus, Settings, Bell, LayoutGrid, Lock, LockOpen, CalendarDays
+  Users, UserPlus, Settings, Bell, LayoutGrid, Lock, LockOpen, CalendarDays,
+  BarChart3, PieChart, ShieldCheck, ArrowDown, ArrowUp, FileText, Tag
 } from 'lucide-react'
 
 import {
@@ -21,12 +22,12 @@ import {
   type SplitBill, type SplitBillParticipant, type SplitBillWithStats, type Debt, type DebtPayment, type DebtWithStats,
   type DaySpend, type DailySpendData, type DowStat, type DailyRecords,
   CATEGORY_CONFIG, CATEGORY_COLOR, INCOME_CONFIG, FREQ_LABELS, MONTHS, MONTHS_SHORT,
-  WEEKDAY_LABELS, HEAT_COLORS, SpendingHeatmap, WeekdayBars,
+  WEEKDAY_LABELS, HEAT_COLORS, SpendingHeatmap, WeekdayBars, SpendingPaceChart, heatLevels,
   fmtFull, fmt, fmtShort, groupId, parseRp, inMonth, currentMonth, daysLeftInMonth,
   getMonthLabelFull, getMonthLabelShort, nextDueDate, localISOString, dateWithCurrentTime,
   exportCSV, scrollHorizontally,
   monthlyEquivalent, pctText, usageTone, savingsTone,
-  RowMenu, CollapsibleSection, MonthPickerDropdown, SmartInsightsContent, Sparkline, Ring, CatIcon,
+  RowMenu, MonthPickerDropdown, SmartInsightsCard, Sparkline, Ring, CatIcon,
 } from './shared'
 import ExpertView from './expert'
 
@@ -2786,6 +2787,9 @@ function SettingsModal({ value, onChange, onClose }: {
 
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
+// Shared surface style for every Beginner-view section card
+const CARD = 'bg-white border border-gray-100 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.10)]'
+
 export default function Dashboard() {
   const [expenses, setExpenses]               = useState<Expense[]>([])
   const [income, setIncome]                   = useState<Income[]>([])
@@ -3384,6 +3388,26 @@ export default function Dashboard() {
     }
   }, [dailySpend, dowStats])
 
+  // Heat level per day — reused by the collapsed header's mini 7-day strip
+  const dailyHeatLevels = useMemo(() => heatLevels(dailySpend.days), [dailySpend.days])
+
+  // Spending pace: cumulative spend per day-of-month, this month vs last month.
+  // Same LOCAL-time day bucketing as dailySpend.
+  const spendingPace = useMemo(() => {
+    const [yr, mo] = selectedMonth.split('-').map(Number)
+    const lastDays = new Date(yr, mo - 1, 0).getDate()     // days in previous month
+    const cumulative = (list: Expense[], len: number) => {
+      const perDay = new Array<number>(len).fill(0)
+      list.forEach(e => { const d = new Date(e.created_at).getDate(); if (d >= 1 && d <= len) perDay[d - 1] += e.amount })
+      let run = 0
+      return perDay.map(v => (run += v))
+    }
+    return {
+      thisSeries: cumulative(thisMonthExpenses, dailySpend.daysInMonth).slice(0, dailySpend.elapsedDays),
+      lastSeries: cumulative(lastMonthExpenses, lastDays),
+    }
+  }, [thisMonthExpenses, lastMonthExpenses, selectedMonth, dailySpend.daysInMonth, dailySpend.elapsedDays])
+
   const maxMonthly = Math.max(...last6Months.map(m => m.total), 1)
   const maxWeekly  = Math.max(...weeklyData.map(w => w.total), 1)
 
@@ -3506,7 +3530,7 @@ export default function Dashboard() {
         @keyframes slideUp { from { transform: translateY(14px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         .animate-slide-up { animation: slideUp 0.2s ease both; }
         .stat-card { animation: slideUp 0.3s ease both; transition: transform 0.2s ease, box-shadow 0.2s ease; }
-        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(0,0,0,0.06); }
+        .stat-card:hover { transform: translateY(-2px); box-shadow: 0 10px 28px -12px rgba(16,24,40,0.15); }
         .stat-card:nth-child(1){animation-delay:0.03s} .stat-card:nth-child(2){animation-delay:0.07s}
         .stat-card:nth-child(3){animation-delay:0.11s} .stat-card:nth-child(4){animation-delay:0.15s}
         .row-item { animation: slideUp 0.22s ease both; }
@@ -3547,7 +3571,7 @@ export default function Dashboard() {
         @keyframes heatIn { from { transform: scale(.72); opacity: 0; } to { transform: scale(1); opacity: 1; } }
         .heat-cell { animation: heatIn .28s cubic-bezier(.34,1.56,.64,1) both;
                      transition: transform .15s ease, box-shadow .15s ease; }
-        .heat-cell:hover { transform: scale(1.14); z-index: 5; }
+        .heat-cell:hover { transform: scale(1.08); z-index: 5; }
         .heat-bar { transition: height .4s cubic-bezier(.4,0,.2,1); }
 
         @media (prefers-reduced-motion: reduce) {
@@ -3601,7 +3625,7 @@ export default function Dashboard() {
           onLogout={handleLogout}
         />
       ) : (
-      <div className="min-h-screen bg-white">
+      <div className="min-h-screen bg-[#fafafa]">
         {/* ── Sticky Top Bar ── */}
         <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-100">
           <div className="max-w-2xl mx-auto px-4 sm:px-5 py-2.5">
@@ -3609,30 +3633,30 @@ export default function Dashboard() {
             <div className="flex items-center gap-2.5">
               <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0"><img src="/logo.png" alt="logo" className="w-full h-full object-cover" /></div>
               <div>
-                <h1 className="text-base font-medium text-black leading-none tracking-tight">ExpenseFlow</h1>
+                <h1 className="text-base font-bold text-black leading-none tracking-tight">ExpenseFlow</h1>
               </div>
             </div>
             <div className="hidden sm:flex items-center gap-2">
               <button onClick={() => setShowSearch(v => !v)} title="Search"
-                className={`p-1.5 border rounded-lg transition-all ${showSearch ? 'bg-black border-black text-white' : 'border-gray-200 text-gray-600 hover:border-black hover:bg-gray-50'}`}>
+                className={`w-8 h-8 flex items-center justify-center border rounded-full shadow-sm transition-all ${showSearch ? 'bg-black border-black text-white' : 'bg-white border-gray-200 text-black hover:border-black'}`}>
                 <Search size={14} />
               </button>
               <button onClick={() => setShowAddIncome(true)}
-                className="flex items-center gap-1.5 border border-gray-200 hover:border-black hover:bg-gray-50 text-gray-600 hover:text-black px-3 py-1.5 rounded-lg text-sm font-medium transition-all active:scale-[.98]">
+                className="flex items-center gap-2 h-8 px-3.5 bg-white border border-gray-200 shadow-sm hover:border-black text-black rounded-full text-sm font-semibold transition-all active:scale-[.98]">
                 <ArrowUpCircle size={14} /> Income
               </button>
               <button onClick={() => setShowAddExpense(true)}
-                className="flex items-center gap-1.5 bg-black hover:bg-gray-800 active:scale-[.98] text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-all">
+                className="flex items-center gap-2 h-8 px-3.5 bg-black hover:bg-gray-800 active:scale-[.98] text-white rounded-full text-sm font-semibold shadow-sm transition-all">
                 <ArrowDownCircle size={14} /> Expenses
               </button>
               <div className="relative" ref={deskMenuRef}>
                 <button onClick={() => setDeskMenuOpen(v => !v)} title="More"
                   aria-haspopup="menu" aria-expanded={deskMenuOpen}
-                  className={`flex items-center border rounded-lg p-1.5 transition-all active:scale-[.98] ${deskMenuOpen ? 'bg-black border-black text-white' : 'border-gray-200 text-gray-600 hover:border-black hover:bg-gray-50 hover:text-black'}`}>
+                  className={`w-8 h-8 flex items-center justify-center border rounded-full shadow-sm transition-all active:scale-[.98] ${deskMenuOpen ? 'bg-black border-black text-white' : 'bg-white border-gray-200 text-black hover:border-black'}`}>
                   <MoreHorizontal size={15} />
                 </button>
                 {deskMenuOpen && (
-                  <div className="absolute right-0 top-full mt-1.5 w-44 bg-white border border-gray-100 rounded-xl shadow-lg z-[200] py-1.5 animate-slide-up">
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-lg z-[200] py-1.5 animate-slide-up">
                     <button onClick={() => { setShowSimulator(true); setDeskMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><Calculator size={14} className="text-purple-500" /> Budget Simulator</button>
                     <button onClick={() => { setShowAddBill(true); setDeskMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><CreditCard size={14} className="text-blue-500" /> Add Bill</button>
                     <button onClick={() => { exportCSV(expenses, income, selectedMonth); setDeskMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><Download size={14} className="text-gray-500" /> Export CSV</button>
@@ -3643,18 +3667,18 @@ export default function Dashboard() {
                 )}
               </div>
             </div>
-            <div className="flex sm:hidden items-center gap-1.5" ref={menuRef}>
-              <button onClick={() => setShowSearch(v => !v)}
-                className={`p-1.5 rounded-lg border transition-all ${showSearch ? 'bg-black border-black text-white' : 'border-gray-200 text-gray-600'}`}>
-                <Search size={15} />
+            <div className="flex sm:hidden items-center gap-2" ref={menuRef}>
+              <button onClick={() => setShowSearch(v => !v)} title="Search"
+                className={`w-8 h-8 flex items-center justify-center rounded-full border shadow-sm transition-all ${showSearch ? 'bg-black border-black text-white' : 'bg-white border-gray-200 text-black'}`}>
+                <Search size={14} />
               </button>
               <div className="relative">
-                <button onClick={() => setMenuOpen(v => !v)}
-                  className={`p-1.5 border rounded-lg transition-all ${menuOpen ? 'bg-black border-black text-white' : 'border-gray-200 text-gray-600'}`}>
+                <button onClick={() => setMenuOpen(v => !v)} title="Menu"
+                  className={`w-8 h-8 flex items-center justify-center border rounded-full shadow-sm transition-all ${menuOpen ? 'bg-black border-black text-white' : 'bg-white border-gray-200 text-black'}`}>
                   <Menu size={15} />
                 </button>
                 {menuOpen && (
-                  <div className="absolute right-0 top-full mt-1.5 w-44 bg-white border border-gray-100 rounded-xl shadow-lg z-[200] py-1.5 animate-slide-up">
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-lg z-[200] py-1.5 animate-slide-up">
                     <button onClick={() => { exportCSV(expenses, income, selectedMonth); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><Download size={14} className="text-gray-500" /> Export CSV</button>
                     <button onClick={() => { setShowAddIncome(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><ArrowUpCircle size={14} className="text-green-600" /> Add Income</button>
                     <button onClick={() => { setShowAddExpense(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><ArrowDownCircle size={14} /> Add Expense</button>
@@ -3674,7 +3698,7 @@ export default function Dashboard() {
             <div className="relative mt-2.5 animate-slide-up">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
               <input autoFocus value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search expenses, income, notes..."
-                className="w-full border border-gray-200 rounded-lg pl-9 pr-9 py-2.5 text-sm text-black focus:outline-none focus:border-black transition" />
+                className="w-full bg-white border border-gray-200 rounded-full pl-9 pr-9 py-2.5 text-sm text-black focus:outline-none focus:border-black transition" />
               {searchQuery && <button onClick={() => setSearchQuery('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black"><X size={14} /></button>}
             </div>
           )}
@@ -3684,125 +3708,147 @@ export default function Dashboard() {
         <div className="max-w-2xl mx-auto px-4 sm:px-5 py-5">
 
           {/* ── Welcome + Balance Card ── */}
-          <div className="mb-4">
+          <div className="mb-3">
             {fullName && (
-              <p className="text-xl font-semibold text-black mb-3 tracking-tight">
-                Welcome back, <span className="text-gray-400 font-normal">{fullName}</span> 
+              <p className="text-xl font-bold text-black mb-3 tracking-tight">
+                Welcome back, <span className="text-gray-400 font-semibold">{fullName}</span>
               </p>
             )}
 
             {/* Month picker — dropdown on left, arrow buttons grouped on right */}
             <div className="flex items-center gap-2 mb-2.5">
-              <MonthPickerDropdown months={last6Months} selected={selectedMonth} onChange={setSelectedMonth} />
-              <div className="flex items-center gap-1 ml-auto">
+              <MonthPickerDropdown months={last6Months} selected={selectedMonth} onChange={setSelectedMonth} variant="pill" />
+              <div className="flex items-center gap-2 ml-auto">
                 <button
                   onClick={() => canGoPrev && setSelectedMonth(last6Months[monthIndex - 1].key)}
                   disabled={!canGoPrev}
-                  className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-black transition-all disabled:opacity-25 disabled:cursor-not-allowed"
+                  title="Previous month"
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-100 shadow-sm text-black hover:border-gray-300 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                  <ChevronLeft size={13} />
+                  <ChevronLeft size={14} />
                 </button>
                 <button
                   onClick={() => canGoNext && setSelectedMonth(last6Months[monthIndex + 1].key)}
                   disabled={!canGoNext}
-                  className="w-7 h-7 flex items-center justify-center rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 hover:text-black transition-all disabled:opacity-25 disabled:cursor-not-allowed"
+                  title="Next month"
+                  className="w-8 h-8 flex items-center justify-center rounded-full bg-white border border-gray-100 shadow-sm text-black hover:border-gray-300 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                 >
-                  <ChevronRight size={13} />
+                  <ChevronRight size={14} />
                 </button>
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-2.5">
               {/* Total balance card */}
-              <div className="bg-black rounded-xl px-4 py-3.5">
-                <div className="flex items-center justify-between mb-2">
-                  <p className="text-[11px] text-white/60 font-medium uppercase tracking-wide">Total balance</p>
+              <div className="relative overflow-hidden rounded-2xl bg-linear-to-br from-[#1c1c1c] via-black to-[#0a0a0a] px-4 py-4 shadow-[0_12px_30px_-12px_rgba(0,0,0,0.45)]">
+                <div aria-hidden="true" className="pointer-events-none absolute -right-16 -bottom-24 w-72 h-48 rotate-[-18deg] rounded-[40%] bg-linear-to-tr from-transparent via-white/[0.05] to-white/[0.10]" />
+                <div className="relative flex items-center justify-between mb-2.5">
+                  <p className="text-[10px] text-white/70 font-semibold uppercase tracking-[0.15em]">Total balance</p>
                   <button
                     onClick={() => setShowTotalBalance(v => !v)}
-                    className="text-white/50 hover:text-white transition-colors"
+                    className="text-white/60 hover:text-white transition-colors"
                     title={showTotalBalance ? 'Hide' : 'Show'}
                   >
-                    {showTotalBalance ? <EyeOff size={13} /> : <Eye size={13} />}
+                    {showTotalBalance ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
-                <p className={`text-lg font-bold leading-none tracking-tight ${cumulativeBalance >= 0 ? 'text-white' : 'text-red-400'}`}>
+                <p className={`relative text-xl font-bold leading-none tracking-tight truncate ${cumulativeBalance >= 0 ? 'text-white' : 'text-red-400'}`}>
                   {showTotalBalance
                     ? fmtFull(Math.abs(cumulativeBalance))
-                    : <span className="tracking-widest text-white/30 select-none text-base">••••••</span>
+                    : <span className="tracking-widest text-white/30 select-none text-lg">••••••</span>
                   }
                 </p>
                 {showTotalBalance && cumulativeBalance < 0 && (
-                  <p className="text-[10px] text-red-400 mt-1">deficit</p>
+                  <p className="relative text-[11px] text-red-400 mt-1.5">deficit</p>
                 )}
                 {showTotalBalance && cumulativeBalance >= 0 && (
-                  <p className="text-[10px] text-white/40 mt-1">All time</p>
+                  <p className="relative flex items-center gap-1.5 text-xs text-white/70 mt-1.5">
+                    <span className="w-3.5 h-3.5 rounded-full bg-emerald-500/90 flex items-center justify-center shrink-0"><ArrowUp size={9} className="text-black" strokeWidth={3} /></span>
+                    All time
+                  </p>
                 )}
               </div>
 
               {/* Monthly balance card */}
-              <div className="bg-gray-50 border border-gray-100 rounded-xl px-3.5 py-3.5 flex items-center gap-3">
-                <Ring
-                  pct={100 - monthlyProgress.pct}
-                  size={44}
-                  stroke={5}
-                  color={100 - monthlyProgress.pct >= 50 ? '#059669' : 100 - monthlyProgress.pct >= 20 ? '#d97706' : '#dc2626'}
-                >
-                  <span className="text-[11px] font-bold text-black leading-none">{(100 - monthlyProgress.pct).toFixed(0)}%</span>
-                </Ring>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <p className="text-[11px] text-gray-400 font-medium uppercase tracking-wide">This month</p>
-                    <button
-                      onClick={() => setShowMonthlyBalance(v => !v)}
-                      className="text-gray-400 hover:text-gray-600 transition-colors shrink-0"
-                      title={showMonthlyBalance ? 'Hide' : 'Show'}
-                    >
-                      {showMonthlyBalance ? <EyeOff size={13} /> : <Eye size={13} />}
-                    </button>
+              {(() => {
+                const leftPct = 100 - monthlyProgress.pct
+                const ringColor = leftPct >= 50 ? '#059669' : leftPct >= 20 ? '#f59e0b' : '#dc2626'
+                return (
+                  <div className={`${CARD} relative overflow-hidden bg-linear-to-br from-white to-slate-50/70 px-4 py-4 flex items-center gap-3`}>
+                    <div aria-hidden="true" className="pointer-events-none absolute -right-10 -bottom-16 w-40 h-40 rounded-full bg-slate-100/60" />
+                    <div className="relative">
+                      <Ring pct={leftPct} size={54} stroke={5} color={ringColor}>
+                        <span className="text-xs font-bold text-black leading-none">{leftPct.toFixed(0)}%</span>
+                      </Ring>
+                    </div>
+                    <div className="relative flex-1 min-w-0">
+                      <div className="flex items-center justify-between mb-1.5">
+                        <p className="text-[10px] text-gray-500 font-semibold uppercase tracking-[0.15em]">This month</p>
+                        <button
+                          onClick={() => setShowMonthlyBalance(v => !v)}
+                          className="text-gray-400 hover:text-gray-700 transition-colors shrink-0"
+                          title={showMonthlyBalance ? 'Hide' : 'Show'}
+                        >
+                          {showMonthlyBalance ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                      </div>
+                      <p className={`text-xl font-bold leading-none tracking-tight truncate ${netSavings >= 0 ? 'text-black' : 'text-red-600'}`}>
+                        {showMonthlyBalance
+                          ? fmtFull(Math.abs(netSavings))
+                          : <span className="tracking-widest text-gray-300 select-none text-lg">••••••</span>
+                        }
+                      </p>
+                      {showMonthlyBalance && (
+                        <p className={`flex items-center gap-1.5 text-xs mt-1.5 ${netSavings < 0 ? 'text-red-500' : 'text-gray-600'}`}>
+                          <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: netSavings < 0 ? '#dc2626' : ringColor }} />
+                          {netSavings < 0 ? 'deficit' : 'Remaining'}
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <p className={`text-lg font-bold leading-none tracking-tight truncate ${netSavings >= 0 ? 'text-black' : 'text-red-600'}`}>
-                    {showMonthlyBalance
-                      ? fmtFull(Math.abs(netSavings))
-                      : <span className="tracking-widest text-gray-300 select-none text-base">••••••</span>
-                    }
-                  </p>
-                  {showMonthlyBalance && netSavings < 0 && (
-                    <p className="text-[10px] text-red-500 mt-1">deficit</p>
-                  )}
-                  {showMonthlyBalance && netSavings >= 0 && (
-                    <p className="text-[10px] text-gray-400 mt-1">Remaining</p>
-                  )}
-                </div>
-              </div>
+                )
+              })()}
             </div>
           </div>
           {/* ── END BALANCE SECTION ── */}
 
           {/* ── Stat Cards ── */}
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 sm:gap-3 mb-5">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 mb-3">
             {[
               {
                 label: 'Income',
                 value: fmtShort(thisMonthIncomeTot),
                 sub: `${thisMonthIncome.length} entr${thisMonthIncome.length === 1 ? 'y' : 'ies'}`,
                 color: 'text-green-700',
-                icon: <ArrowUpCircle size={11} />
+                subIcon: <ArrowUp size={10} strokeWidth={3} />,
+                icon: <ArrowDown size={13} strokeWidth={2.5} />,
+                iconBg: 'bg-emerald-50 text-emerald-600',
+                spark: incomeLast6Months.map(m => m.total),
+                sparkColor: '#10b981',
               },
               {
                 label: 'Expenses',
                 value: fmtShort(thisMonthTotal),
-                sub: lastMonthTotal > 0 ? `${monthOverMonthPct > 0 ? '↑' : '↓'} ${Math.abs(monthOverMonthPct).toFixed(0)}% vs last month` : 'No prior data',
-                color: monthOverMonthPct > 0 ? 'text-red-600' : 'text-green-700',
-                icon: <ArrowDownCircle size={11} />
+                sub: lastMonthTotal > 0 ? `${Math.abs(monthOverMonthPct).toFixed(0)}% vs last mo.` : 'No prior data',
+                color: lastMonthTotal === 0 ? 'text-gray-400' : monthOverMonthPct > 0 ? 'text-red-600' : 'text-green-700',
+                subIcon: lastMonthTotal === 0 ? null : monthOverMonthPct > 0 ? <ArrowUp size={10} strokeWidth={3} /> : <ArrowDown size={10} strokeWidth={3} />,
+                icon: <CreditCard size={13} strokeWidth={2.25} />,
+                iconBg: 'bg-violet-50 text-violet-600',
+                spark: last6Months.map(m => m.total),
+                sparkColor: '#8b5cf6',
               },
               {
                 label: 'Spending rate',
                 value: thisMonthIncomeTot > 0 ? `${spendingRate.toFixed(0)}%` : '—',
                 sub: thisMonthIncomeTot > 0
-                  ? spendingRate >= 100 ? 'Over budget!' : spendingRate >= 80 ? 'Getting close' : 'Of income used'
+                  ? spendingRate >= 100 ? 'Over budget!' : spendingRate >= 80 ? 'Getting close' : 'of income used'
                   : 'Add income first',
-                color: spendingRate >= 100 ? 'text-red-600' : spendingRate >= 80 ? 'text-amber-600' : 'text-green-700',
-                icon: spendingRate >= 100 ? <AlertTriangle size={11} /> : <TrendingUp size={11} />
+                color: thisMonthIncomeTot === 0 ? 'text-gray-400' : spendingRate >= 100 ? 'text-red-600' : spendingRate >= 80 ? 'text-amber-600' : 'text-green-700',
+                subIcon: spendingRate >= 100 ? <AlertTriangle size={10} strokeWidth={2.5} /> : <TrendingUp size={10} strokeWidth={2.5} />,
+                icon: <LayoutGrid size={13} strokeWidth={2.25} />,
+                iconBg: 'bg-blue-50 text-blue-600',
+                spark: last6Months.map((m, i) => incomeLast6Months[i] && incomeLast6Months[i].total > 0 ? (m.total / incomeLast6Months[i].total) * 100 : 0),
+                sparkColor: '#3b82f6',
               },
               {
                 label: 'Safe to spend',
@@ -3820,99 +3866,144 @@ export default function Dashboard() {
                   ? 'text-gray-400'
                   : netSavings <= 0
                   ? 'text-red-600'
-                  : 'text-green-700',
-                icon: netSavings <= 0 && safeToSpendPerDay.isCurrentMonth ? <AlertTriangle size={11} /> : <Wallet size={11} />
+                  : 'text-gray-600',
+                subIcon: netSavings <= 0 && safeToSpendPerDay.isCurrentMonth ? <AlertTriangle size={10} /> : <Calendar size={10} />,
+                icon: <ShieldCheck size={13} strokeWidth={2.25} />,
+                iconBg: 'bg-orange-50 text-orange-500',
+                spark: dailyBalanceSeries.map(d => d.balance),
+                sparkColor: '#f97316',
               },
-            ].map((s, i) => (
-              <div key={i} className="stat-card bg-gray-50 rounded-xl p-3 sm:p-3.5">
-                <p className="text-xs text-gray-400 mb-1">{s.label}</p>
-                <p className="text-base sm:text-lg font-medium text-black">{s.value}</p>
-                <p className={`text-xs mt-1 flex items-center gap-1 ${s.color}`}>{s.icon}<span className="truncate">{s.sub}</span></p>
-              </div>
-            ))}
+            ].map((s, i) => {
+              const showSpark = s.spark.length >= 2 && s.spark.some(v => v !== 0)
+              return (
+                <div key={i} className={`stat-card ${CARD} relative overflow-hidden p-3.5`}>
+                  {showSpark && (
+                    <div aria-hidden="true" className="absolute right-3 bottom-3 w-12 sm:w-14 h-7 pointer-events-none opacity-90 z-0">
+                      <Sparkline data={s.spark} stroke={s.sparkColor} height={28} />
+                    </div>
+                  )}
+                  <div className="relative z-10">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${s.iconBg}`}>{s.icon}</span>
+                      <p className="text-xs text-gray-500 truncate">{s.label}</p>
+                    </div>
+                    <p className="text-base sm:text-lg font-medium text-black mt-2 tracking-tight truncate">{s.value}</p>
+                    <p className={`text-[11px] mt-1 flex items-center gap-1 ${s.color}`}>
+                      {s.subIcon && <span className="shrink-0 flex items-center">{s.subIcon}</span>}
+                      <span className="truncate">{s.sub}</span>
+                    </p>
+                  </div>
+                </div>
+              )
+            })}
           </div>
 
           {/* ── Daily spending ── */}
           {/* Collapsed by default. Content is conditionally rendered rather than
               height-animated: a max-height wrapper needs overflow:hidden, which
               would clip the heatmap's hover tooltip while open. */}
-          <div className="border border-gray-100 rounded-xl p-4 mb-4">
+          <div className={`${CARD} px-4 py-3 mb-3`}>
             <button onClick={() => setDailyOpen(v => !v)}
               aria-expanded={dailyOpen}
               className="w-full flex items-center justify-between gap-2 text-left group">
-              <div className="flex items-center gap-2 min-w-0">
-                <CalendarDays size={13} className="text-gray-400 shrink-0" />
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide group-hover:text-black transition-colors">Daily spending</p>
+              <div className="flex items-center gap-2.5 min-w-0">
+                <CalendarDays size={14} className="text-black shrink-0" />
+                <p className="text-xs font-semibold text-black uppercase tracking-wider truncate">Daily spending</p>
               </div>
-              <div className="flex items-center gap-2 shrink-0">
+              <div className="flex items-center gap-3 shrink-0 min-w-0">
+                {/* Mini 7-day strip — a glance at the last week even while closed */}
                 {!dailyOpen && dailySpend.elapsedDays > 0 && (
-                  <span className="text-[10px] text-gray-400 truncate">
+                  <span aria-hidden="true" className="hidden sm:flex items-center gap-[3px]">
+                    {dailySpend.days.slice(Math.max(0, dailySpend.elapsedDays - 7), dailySpend.elapsedDays).map(d => (
+                      <span key={d.day} className="w-2.5 h-2.5 rounded-[3px]" style={{ backgroundColor: HEAT_COLORS[dailyHeatLevels[d.day - 1]] }} />
+                    ))}
+                  </span>
+                )}
+                {!dailyOpen && dailySpend.elapsedDays > 0 && (
+                  <span className="text-xs font-medium text-black truncate">
                     {dailySpend.spentDayCount === 0
                       ? 'No spending yet'
                       : `${fmt(Math.round(dailySpend.medianActiveDay))} typical day`}
                   </span>
                 )}
-                <span className="text-[10px] text-gray-300">{getMonthLabelFull(selectedMonth)}</span>
-                <ChevronDown size={13} className={`text-gray-300 transition-transform duration-300 ${dailyOpen ? 'rotate-0' : '-rotate-90'}`} />
+                {!dailyOpen && dailySpend.elapsedDays > 0 && <span aria-hidden="true" className="hidden sm:inline-block w-px h-4 bg-gray-200" />}
+                <span className="hidden sm:inline text-[11px] text-gray-400">{getMonthLabelFull(selectedMonth)}</span>
+                <ChevronRight size={14} className={`text-black transition-transform duration-300 ${dailyOpen ? 'rotate-90' : 'rotate-0'}`} />
               </div>
             </button>
 
-            {dailyOpen && (<div className="animate-slide-up mt-3">
+            {dailyOpen && (<div className="animate-slide-up mt-4">
             {dailySpend.elapsedDays === 0 ? (
               <p className="text-xs text-gray-300 text-center py-8">This month hasn't started yet</p>
             ) : (<>
-              {/* Plain-English answer, so the chart is optional reading */}
-              <p className="text-xs text-gray-500 leading-relaxed mb-3">
-                {dailySpend.spentDayCount === 0
-                  ? `No spending recorded in ${getMonthLabelFull(selectedMonth)} yet.`
-                  : <>
-                      You spent on <strong className="text-black font-medium">{dailySpend.spentDayCount}</strong> of {dailySpend.elapsedDays} days
-                      {dailySpend.medianActiveDay > 0 && <>, typically <strong className="text-black font-medium">{fmt(Math.round(dailySpend.medianActiveDay))}</strong> a day</>}.
-                      {dailyRecords.heaviestDow && dailyRecords.heaviestDow.avg > 0 && (
-                        <> {dailyRecords.heaviestDow.label}s are your heaviest — {fmt(Math.round(dailyRecords.heaviestDow.avg))} on average.</>
-                      )}
-                    </>}
-              </p>
+              {/* KPI strip — the plain-English answer, so the chart is optional reading */}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: 'Typical day', value: dailySpend.spentDayCount ? fmt(Math.round(dailySpend.medianActiveDay)) : '—', sub: 'a normal day' },
+                  { label: 'Days spent', value: `${dailySpend.spentDayCount} / ${dailySpend.elapsedDays}`, sub: 'days so far' },
+                  { label: 'No-spend streak', value: `${dailyRecords.currentNoSpend} ${dailyRecords.currentNoSpend === 1 ? 'day' : 'days'}`, sub: `best: ${dailyRecords.longestNoSpend}` },
+                ].map(k => (
+                  <div key={k.label} className="rounded-xl bg-gray-50 px-3 py-2.5 min-w-0">
+                    <p className="text-[10px] text-gray-500 truncate">{k.label}</p>
+                    <p className="text-sm font-medium text-black mt-0.5 truncate tabular-nums">{k.value}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5 truncate">{k.sub}</p>
+                  </div>
+                ))}
+              </div>
+              {dailyRecords.heaviestDow && dailyRecords.heaviestDow.avg > 0 && (
+                <p className="text-xs text-gray-500 mt-2.5">
+                  <strong className="font-medium text-black">{dailyRecords.heaviestDow.label}s</strong> are your heaviest — {fmt(Math.round(dailyRecords.heaviestDow.avg))} on average.
+                </p>
+              )}
 
-              <SpendingHeatmap data={dailySpend} monthKey={selectedMonth} size="compact" onSelectDay={setOpenDay} />
-              <WeekdayBars stats={dowStats} size="compact" />
+              <div className="mt-4">
+                <SpendingHeatmap data={dailySpend} monthKey={selectedMonth} size="compact" onSelectDay={setOpenDay} showWeekTotals />
+                <WeekdayBars stats={dowStats} size="compact" withWeekColumn />
+                <p className="text-[10px] text-gray-300 text-center mt-1">Tap any day to see what you spent</p>
+              </div>
 
-              <p className="text-[10px] text-gray-300 text-center mt-2">Tap any day to see what you spent</p>
+              {/* Spending pace vs last month */}
+              <div className="mt-4 pt-4 border-t border-gray-100">
+                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Spending pace</p>
+                <SpendingPaceChart thisSeries={spendingPace.thisSeries} lastSeries={spendingPace.lastSeries} daysInMonth={dailySpend.daysInMonth} />
+              </div>
 
               {dailySpend.spentDayCount > 0 && (<>
                 <button onClick={() => setShowDailyPatterns(v => !v)}
-                  className="w-full flex items-center justify-center gap-1 mt-3 pt-3 border-t border-gray-100 text-[11px] font-medium text-gray-400 hover:text-black transition-colors">
+                  className="w-full flex items-center justify-center gap-1 mt-4 pt-3 border-t border-gray-100 text-[11px] font-medium text-gray-400 hover:text-black transition-colors">
                   {showDailyPatterns ? 'Hide patterns' : 'Show patterns'}
                   <ChevronDown size={12} className={`transition-transform duration-300 ${showDailyPatterns ? 'rotate-180' : ''}`} />
                 </button>
                 <div style={{ maxHeight: showDailyPatterns ? '600px' : '0px', opacity: showDailyPatterns ? 1 : 0, transition: 'max-height 0.35s ease, opacity 0.25s ease', overflow: 'hidden' }}>
                   <div className="grid grid-cols-2 gap-2 pt-3">
                     {[
-                      { label: 'Typical day', value: fmt(Math.round(dailySpend.medianActiveDay)), sub: 'what a normal day costs', day: null as number | null },
+                      { label: 'Quietest day', value: dailyRecords.quietest ? fmt(dailyRecords.quietest.total) : '—',
+                        sub: dailyRecords.quietest ? `${MONTHS_SHORT[Number(selectedMonth.split('-')[1]) - 1]} ${dailyRecords.quietest.day}` : 'no spending yet',
+                        day: dailyRecords.quietest?.day ?? null },
                       { label: 'Highest day', value: dailyRecords.highest ? fmt(dailyRecords.highest.total) : '—',
                         sub: dailyRecords.highest ? `${MONTHS_SHORT[Number(selectedMonth.split('-')[1]) - 1]} ${dailyRecords.highest.day}` : 'no spending yet',
                         day: dailyRecords.highest?.day ?? null },
-                      { label: 'No-spend days', value: String(dailySpend.noSpendDayCount), sub: `of ${dailySpend.elapsedDays} days so far`, day: null },
-                      { label: 'Longest streak', value: `${dailyRecords.longestNoSpend} ${dailyRecords.longestNoSpend === 1 ? 'day' : 'days'}`, sub: 'no spending in a row', day: null },
+                      { label: 'No-spend days', value: String(dailySpend.noSpendDayCount), sub: `of ${dailySpend.elapsedDays} days so far`, day: null as number | null },
+                      { label: 'Longest streak', value: `${dailyRecords.longestNoSpend} ${dailyRecords.longestNoSpend === 1 ? 'day' : 'days'}`, sub: 'no spending in a row', day: null as number | null },
                     ].map(t => (
                       <button key={t.label} disabled={t.day === null} onClick={() => t.day !== null && setOpenDay(t.day)}
-                        className={`bg-gray-50 rounded-xl p-3 text-left transition-all ${t.day !== null ? 'hover:bg-gray-100 active:scale-[.98] cursor-pointer' : 'cursor-default'}`}>
-                        <p className="text-[10px] text-gray-400 mb-0.5">{t.label}</p>
-                        <p className="text-sm font-medium text-black truncate">{t.value}</p>
+                        className={`bg-gray-50 rounded-xl px-3 py-2.5 text-left transition-all ${t.day !== null ? 'hover:bg-gray-100 active:scale-[.98] cursor-pointer' : 'cursor-default'}`}>
+                        <p className="text-[10px] text-gray-500 mb-0.5">{t.label}</p>
+                        <p className="text-sm font-medium text-black truncate tabular-nums">{t.value}</p>
                         <p className="text-[10px] text-gray-400 mt-0.5 truncate">{t.sub}</p>
                       </button>
                     ))}
                   </div>
-                  <div className="flex flex-col gap-1.5 pt-3">
+                  <div className="flex flex-col gap-2 pt-3.5">
                     {dowStats.map(s => (
-                      <div key={s.idx} className="flex items-center gap-2">
+                      <div key={s.idx} className="flex items-center gap-2.5">
                         <span className="text-[11px] text-gray-500 w-8 shrink-0">{s.label}</span>
-                        <div className="flex-1 bg-gray-100 rounded-full h-1 overflow-hidden">
+                        <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
                           <div className="h-full rounded-full bar-fill"
                             style={{ width: `${s.occurrences === 0 ? 0 : (s.avg / Math.max(...dowStats.map(x => x.avg), 1)) * 100}%`,
                                      backgroundColor: dailyRecords.heaviestDow?.idx === s.idx ? HEAT_COLORS[4] : HEAT_COLORS[2] }} />
                         </div>
-                        <span className="text-[10px] text-gray-400 w-24 text-right shrink-0">
+                        <span className="text-[10px] text-gray-500 w-24 text-right shrink-0 tabular-nums">
                           {s.occurrences === 0 ? '—' : `${fmt(Math.round(s.avg))} avg`}
                         </span>
                       </div>
@@ -3925,46 +4016,49 @@ export default function Dashboard() {
           </div>
 
           {/* ── Charts ── */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
-            <div className="border border-gray-100 rounded-xl p-4">
-              <div className="flex items-center justify-between mb-3">
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">
-                  {chartView === 'monthly' ? 'Last 6 months' : 'Weekly breakdown'}
-                </p>
-                <div className="flex rounded-lg overflow-hidden border border-gray-200">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-2.5">
+            <div className={`${CARD} p-4`}>
+              <div className="flex items-center justify-between gap-2 mb-3.5">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <BarChart3 size={14} className="text-black shrink-0" strokeWidth={2.5} />
+                  <p className="text-xs font-semibold text-black uppercase tracking-wider truncate">
+                    {chartView === 'monthly' ? 'Last 6 months' : 'Weekly breakdown'}
+                  </p>
+                </div>
+                <div className="flex bg-gray-100 rounded-full p-1 shrink-0">
                   <button onClick={() => setChartView('monthly')}
-                    className={`px-2.5 py-1 text-xs font-medium transition-all ${chartView === 'monthly' ? 'bg-black text-white' : 'text-gray-400 hover:text-black bg-white'}`}>
+                    className={`px-3 py-0.5 rounded-full text-[11px] font-semibold transition-all ${chartView === 'monthly' ? 'bg-black text-white shadow-sm' : 'text-gray-500 hover:text-black'}`}>
                     Monthly
                   </button>
                   <button onClick={() => setChartView('weekly')}
-                    className={`px-2.5 py-1 text-xs font-medium transition-all border-l border-gray-200 ${chartView === 'weekly' ? 'bg-black text-white' : 'text-gray-400 hover:text-black bg-white'}`}>
+                    className={`px-3 py-0.5 rounded-full text-[11px] font-semibold transition-all ${chartView === 'weekly' ? 'bg-black text-white shadow-sm' : 'text-gray-500 hover:text-black'}`}>
                     Weekly
                   </button>
                 </div>
               </div>
               {chartView === 'monthly' ? (
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2.5">
                   {last6Months.map(m => (
-                    <div key={m.key} className="flex items-center gap-2">
-                      <span className="text-xs text-gray-400 w-6 shrink-0">{m.label}</span>
-                      <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                    <div key={m.key} className="flex items-center gap-2.5">
+                      <span className={`text-xs w-8 shrink-0 ${m.key === selectedMonth ? 'text-black font-medium' : 'text-gray-500'}`}>{m.label}</span>
+                      <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
                         <div className={`h-full rounded-full transition-all duration-700 ${m.key === selectedMonth ? 'bg-black' : 'bg-gray-400'}`}
                           style={{ width: m.total ? `${(m.total / maxMonthly) * 100}%` : '0%' }} />
                       </div>
-                      <span className="text-xs text-gray-400 w-14 text-right shrink-0">{m.total ? fmtShort(m.total) : '—'}</span>
+                      <span className="text-xs text-gray-500 w-14 text-right shrink-0 tabular-nums">{m.total ? fmtShort(m.total) : '—'}</span>
                     </div>
                   ))}
                 </div>
               ) : (
-                <div className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2.5">
                   {weeklyData.map((w, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <span className="text-xs text-gray-400 w-6 shrink-0">{w.label}</span>
-                      <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                    <div key={i} className="flex items-center gap-2.5">
+                      <span className="text-xs text-gray-500 w-8 shrink-0">{w.label}</span>
+                      <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
                         <div className="h-full rounded-full bg-black transition-all duration-700"
                           style={{ width: w.total ? `${(w.total / maxWeekly) * 100}%` : '0%' }} />
                       </div>
-                      <span className="text-xs text-gray-400 w-14 text-right shrink-0">{w.total ? fmtShort(w.total) : '—'}</span>
+                      <span className="text-xs text-gray-500 w-14 text-right shrink-0 tabular-nums">{w.total ? fmtShort(w.total) : '—'}</span>
                     </div>
                   ))}
                   {weeklyData.every(w => w.total === 0) && (
@@ -3974,8 +4068,11 @@ export default function Dashboard() {
               )}
             </div>
 
-            <div className="border border-gray-100 rounded-xl p-4">
-              <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">By category</p>
+            <div className={`${CARD} p-4`}>
+              <div className="flex items-center gap-2.5 mb-3">
+                <PieChart size={14} className="text-black shrink-0" strokeWidth={2.5} />
+                <p className="text-xs font-semibold text-black uppercase tracking-wider">By category</p>
+              </div>
               {thisMonthTotal === 0 ? <p className="text-xs text-gray-300 text-center mt-6">No data this month</p> : (() => {
                 const slices = (Object.keys(CATEGORY_CONFIG) as Category[])
                   .map(cat => ({ cat, spent: categoryTotals[cat] || 0, pct: (categoryTotals[cat] || 0) / thisMonthTotal * 100 }))
@@ -3986,14 +4083,14 @@ export default function Dashboard() {
                   <div className="flex flex-col items-center gap-4">
                     {/* Donut ring, centered */}
                     <div className="relative shrink-0 animate-pop-in">
-                      <svg width="120" height="120" viewBox="0 0 36 36" className="-rotate-90">
-                        <circle cx="18" cy="18" r="15.915" fill="none" stroke="#f3f4f6" strokeWidth="4" />
+                      <svg width="128" height="128" viewBox="0 0 36 36" className="-rotate-90">
+                        <circle cx="18" cy="18" r="15.915" fill="none" stroke="#f3f4f6" strokeWidth="3.6" />
                         {slices.map((s, i) => {
                           const dash = s.pct
                           const active = catSliceSelected === i
                           const el = (
                             <circle key={s.cat} cx="18" cy="18" r="15.915" fill="none"
-                              stroke={CATEGORY_COLOR[s.cat]} strokeWidth={active ? 5 : 4}
+                              stroke={CATEGORY_COLOR[s.cat]} strokeWidth={active ? 4.4 : 3.6}
                               strokeDasharray={`${dash} ${100 - dash}`} strokeDashoffset={-offset}
                               pathLength={100} className="transition-all duration-300 cursor-pointer"
                               style={{ opacity: catSliceSelected === null || active ? 1 : 0.35 }}
@@ -4003,32 +4100,32 @@ export default function Dashboard() {
                           return el
                         })}
                       </svg>
-                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-4">
+                      <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
                         {catSliceSelected !== null && slices[catSliceSelected] ? (
                           <>
-                            <span className="text-[10px] text-gray-500 truncate max-w-full">{CATEGORY_CONFIG[slices[catSliceSelected].cat].label.split(' ')[0]}</span>
-                            <span className="text-sm font-semibold text-black leading-tight">{fmt(slices[catSliceSelected].spent)}</span>
-                            <span className="text-[10px] text-gray-400">{slices[catSliceSelected].pct.toFixed(0)}%</span>
+                            <span className="text-[10px] text-gray-500 uppercase tracking-widest truncate max-w-full">{CATEGORY_CONFIG[slices[catSliceSelected].cat].label.split(' ')[0]}</span>
+                            <span className="text-xs font-medium text-black leading-tight">{fmt(slices[catSliceSelected].spent)}</span>
+                            <span className="text-[11px] text-gray-400">{slices[catSliceSelected].pct.toFixed(0)}%</span>
                           </>
                         ) : (
                           <>
-                            <span className="text-[9px] text-gray-400 uppercase tracking-wide">Total</span>
-                            <span className="text-sm font-semibold text-black leading-tight">{fmtShort(thisMonthTotal)}</span>
+                            <span className="text-[10px] text-gray-400 uppercase tracking-widest">Total</span>
+                            <span className="text-base font-medium text-black leading-tight">{fmtShort(thisMonthTotal)}</span>
                           </>
                         )}
                       </div>
                     </div>
-                    {/* Full-width bar list */}
-                    <div className="w-full flex flex-col gap-2.5">
+                    {/* Legend */}
+                    <div className="w-full flex flex-col divide-y divide-gray-100">
                       {slices.map((s, i) => (
-                        <div key={s.cat} className="legend-row flex items-center gap-2 cursor-pointer rounded-md transition-opacity"
+                        <div key={s.cat} className="legend-row flex items-center gap-2.5 py-1.5 cursor-pointer transition-opacity"
                           style={{ animationDelay: `${0.04 * i}s`, opacity: catSliceSelected === null || catSliceSelected === i ? 1 : 0.4 }}
                           onClick={() => setCatSliceSelected(prev => prev === i ? null : i)}>
-                          <span className="text-xs text-gray-500 w-20 sm:w-24 shrink-0 truncate">{CATEGORY_CONFIG[s.cat].label.split(' ')[0]}</span>
-                          <div className="flex-1 bg-gray-100 rounded-full h-1.5 overflow-hidden">
-                            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${s.pct}%`, background: CATEGORY_COLOR[s.cat] }} />
-                          </div>
-                          <span className="text-xs text-gray-400 shrink-0 whitespace-nowrap">{fmt(s.spent)} · {s.pct.toFixed(0)}%</span>
+                          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: CATEGORY_COLOR[s.cat] }} />
+                          <span className="text-xs text-gray-600 flex-1 min-w-0 truncate">{CATEGORY_CONFIG[s.cat].label.split(' ')[0]}</span>
+                          <span className="text-xs text-gray-700 shrink-0 whitespace-nowrap tabular-nums">
+                            {fmt(s.spent)} <span className="text-gray-400">·</span> <span className="inline-block w-7 text-right">{s.pct.toFixed(0)}%</span>
+                          </span>
                         </div>
                       ))}
                     </div>
@@ -4039,19 +4136,17 @@ export default function Dashboard() {
           </div>
 
           {/* Smart Insights */}
-          <CollapsibleSection title="Smart insights" icon={<Lightbulb size={13} />} defaultOpen={true}>
-            <SmartInsightsContent thisMonthTotal={thisMonthTotal} lastMonthTotal={lastMonthTotal} avgPerDay={avgPerDay}
-              categoryTotals={categoryTotals} thisMonthIncomeTot={thisMonthIncomeTot} netSavings={netSavings} budgets={budgets} budgetSpend={budgetSpend} />
-          </CollapsibleSection>
+          <SmartInsightsCard cardClass={CARD} thisMonthTotal={thisMonthTotal} lastMonthTotal={lastMonthTotal} avgPerDay={avgPerDay}
+            categoryTotals={categoryTotals} thisMonthIncomeTot={thisMonthIncomeTot} netSavings={netSavings} budgets={budgets} budgetSpend={budgetSpend} />
 
           {/* Budget Tracker */}
           {budgets.length > 0 && (
-            <div className="border border-gray-100 rounded-xl p-4 mb-4">
-              <div className="flex items-center gap-2 mb-3">
-                <Target size={13} className="text-gray-400" />
-                <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Budget tracker</p>
+            <div className={`${CARD} p-4 mb-4`}>
+              <div className="flex items-center gap-2.5 mb-3">
+                <Target size={14} className="text-black" strokeWidth={2.5} />
+                <p className="text-xs font-semibold text-black uppercase tracking-wider">Budget tracker</p>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3.5">
                 {budgets.map(b => {
                   const spent = budgetSpend[b.category] || 0
                   const pct   = Math.min((spent / b.limit_amount) * 100, 100)
@@ -4059,21 +4154,21 @@ export default function Dashboard() {
                   const warn  = !over && pct >= 80
                   return (
                     <div key={b.id}>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className="flex items-center gap-1 text-xs text-gray-500">
+                      <div className="flex justify-between items-center mb-1.5">
+                        <span className="flex items-center gap-1 text-xs text-gray-600">
                           {CATEGORY_CONFIG[b.category].label}
-                          {over && <AlertTriangle size={11} className="text-red-500" />}
-                          {warn && <AlertTriangle size={11} className="text-amber-500" />}
+                          {over && <AlertTriangle size={12} className="text-red-500" />}
+                          {warn && <AlertTriangle size={12} className="text-amber-500" />}
                         </span>
-                        <span className={`text-xs font-medium ${over ? 'text-red-600' : warn ? 'text-amber-600' : 'text-gray-500'}`}>
+                        <span className={`text-xs font-medium tabular-nums ${over ? 'text-red-600' : warn ? 'text-amber-600' : 'text-gray-600'}`}>
                           {fmtShort(spent)} / {fmtShort(b.limit_amount)}
                         </span>
                       </div>
-                      <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden">
+                      <div className="bg-gray-100 rounded-full h-2 overflow-hidden">
                         <div className={`h-full rounded-full transition-all duration-700 ${over ? 'bg-red-500' : warn ? 'bg-amber-500' : 'bg-black'}`} style={{ width: `${pct}%` }} />
                       </div>
-                      {over && <p className="text-xs text-red-500 mt-0.5">Over by {fmtShort(spent - b.limit_amount)}</p>}
-                      {warn && <p className="text-xs text-amber-500 mt-0.5">{pct.toFixed(0)}% used — approaching limit</p>}
+                      {over && <p className="text-xs text-red-500 mt-1">Over by {fmtShort(spent - b.limit_amount)}</p>}
+                      {warn && <p className="text-xs text-amber-500 mt-1">{pct.toFixed(0)}% used — approaching limit</p>}
                     </div>
                   )
                 })}
@@ -4082,32 +4177,34 @@ export default function Dashboard() {
           )}
 
           {/* ── Unified tabs: Expenses / Income / Bills / Budgets / Split Bills / Debts / Goals ── */}
-          <div className="border border-gray-100 rounded-xl p-3 sm:p-4 mb-4 animate-slide-up">
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <div className="flex gap-1 bg-gray-100 p-1 rounded-lg overflow-x-auto thin-scrollbar" onWheel={scrollHorizontally}>
-                {([
-                  { key: 'expenses', label: 'Expenses',    icon: <Receipt size={11} />,       count: 0 },
-                  { key: 'income',   label: 'Income',      icon: <ArrowUpCircle size={11} />, count: 0 },
-                  { key: 'bills',    label: 'Bills',        icon: <CreditCard size={11} />,    count: billsDueSoon },
-                  { key: 'pools',    label: 'Budgets',      icon: null,                        count: expensePools.length },
-                  { key: 'splits',   label: 'Split Bills',  icon: null,                        count: billsWithStats.filter(b => !b.settled).length },
-                  { key: 'owed',     label: 'Debts',        icon: null,                        count: debtsWithStats.filter(d => !d.settled).length },
-                  { key: 'goals',    label: 'Goals',        icon: null,                        count: savingsGoals.length },
-                ] as const).map(t => (
+          {(() => {
+            const TABS = [
+              { key: 'expenses', label: 'Expenses',    count: 0 },
+              { key: 'income',   label: 'Income',      count: 0 },
+              { key: 'bills',    label: 'Bills',       count: billsDueSoon },
+              { key: 'pools',    label: 'Budgets',     count: expensePools.length },
+              { key: 'splits',   label: 'Split Bills', count: billsWithStats.filter(b => !b.settled).length },
+              { key: 'owed',     label: 'Debts',       count: debtsWithStats.filter(d => !d.settled).length },
+              { key: 'goals',    label: 'Goals',       count: savingsGoals.length },
+            ] as const
+            return (
+          <div className={`${CARD} p-4 sm:p-5 mb-4 animate-slide-up`}>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 min-w-0 flex gap-1 bg-gray-100 p-1 rounded-full overflow-x-auto thin-scrollbar" onWheel={scrollHorizontally}>
+                {TABS.map(t => (
                   <button key={t.key} data-tab={t.key} onClick={() => setDashboardTab(t.key)}
-                    className={`flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-md text-xs font-medium transition-all whitespace-nowrap ${dashboardTab === t.key ? 'bg-white text-black shadow-sm' : 'text-gray-400 hover:text-black'}`}>
-                    {t.icon}
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium transition-all whitespace-nowrap shrink-0 ${dashboardTab === t.key ? 'bg-black text-white shadow-sm' : 'text-gray-600 hover:text-black'}`}>
                     {t.label}
                     {t.count > 0 && (
-                      <span className={`${dashboardTab === t.key ? 'bg-black text-white' : 'bg-red-500 text-white'} rounded-full text-[9px] min-w-[16px] h-4 px-1 flex items-center justify-center font-medium`}>{t.count}</span>
+                      <span className={`${dashboardTab === t.key ? 'bg-white text-black' : 'bg-red-500 text-white'} rounded-full text-[10px] min-w-4 h-4 px-1 flex items-center justify-center font-semibold`}>{t.count}</span>
                     )}
                   </button>
                 ))}
               </div>
               {dashboardTab === 'bills' && (
                 <button onClick={() => setShowAddBill(true)}
-                  className="flex items-center gap-1 text-xs text-gray-400 hover:text-black border border-gray-200 hover:border-black px-2.5 py-1.5 rounded-lg transition-all whitespace-nowrap shrink-0">
-                  <Plus size={12} /> Add bill
+                  className="flex items-center gap-1.5 h-8 px-3.5 text-xs font-semibold text-black bg-white border border-gray-200 hover:border-black rounded-full shadow-sm transition-all whitespace-nowrap shrink-0">
+                  <Plus size={13} /> Add bill
                 </button>
               )}
               {(dashboardTab === 'pools' || dashboardTab === 'splits' || dashboardTab === 'owed' || dashboardTab === 'goals') && (
@@ -4118,12 +4215,49 @@ export default function Dashboard() {
                     else if (dashboardTab === 'owed') setShowAddDebt(true)
                     else setShowAddGoal(true)
                   }}
-                  className="flex items-center gap-1 text-xs text-gray-500 hover:text-black border border-gray-200 hover:border-black px-2.5 py-1.5 rounded-lg transition-all whitespace-nowrap shrink-0">
-                  <Plus size={12} /> Add
+                  className="flex items-center gap-1.5 h-8 px-3.5 text-xs font-semibold text-black bg-white border border-gray-200 hover:border-black rounded-full shadow-sm transition-all whitespace-nowrap shrink-0">
+                  <Plus size={13} /> Add
                 </button>
               )}
             </div>
 
+            {/* Toolbar — search / month / amount filter / export (list tabs only) */}
+            {(dashboardTab === 'expenses' || dashboardTab === 'income') && (
+              <div className="mt-3 flex items-center gap-2">
+                <div className="relative flex-1 min-w-0">
+                  <Search size={13} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-gray-500 pointer-events-none" />
+                  <input value={searchQuery} onChange={e => setSearchQuery(e.target.value)} placeholder="Search..."
+                    className="w-full h-8 bg-white border border-gray-200 rounded-full pl-9 pr-9 text-xs text-black placeholder:text-gray-400 focus:outline-none focus:border-black transition" />
+                  {searchQuery && (
+                    <button onClick={() => setSearchQuery('')} title="Clear search"
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-black"><X size={14} /></button>
+                  )}
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  {/* Month + Export are PC-only: on mobile the month picker is at the top of the page and Export is in the menu */}
+                  <div className="hidden sm:block">
+                    <MonthPickerDropdown months={last6Months} selected={selectedMonth} onChange={setSelectedMonth} variant="pill" size="sm" align="right" />
+                  </div>
+                  {dashboardTab === 'expenses' && (
+                    <button onClick={() => setShowFilters(v => !v)} aria-expanded={showFilters} title="Filter by amount"
+                      className={`relative flex items-center justify-center gap-1.5 h-8 w-8 sm:w-auto px-0 sm:px-3 rounded-full border shadow-sm text-xs font-semibold transition-all whitespace-nowrap ${showFilters || activeFilterCount > 0 ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-200 hover:border-gray-400'}`}>
+                      <Tag size={13} />
+                      <span className="hidden sm:inline">{activeFilterCount > 0 ? `Filtered (${activeFilterCount})` : 'All Amounts'}</span>
+                      <ChevronDown size={13} className={`hidden sm:inline transition-transform duration-200 ${showFilters ? 'rotate-180' : ''}`} />
+                      {activeFilterCount > 0 && !showFilters && (
+                        <span className="sm:hidden absolute -top-1 -right-1 w-4 h-4 bg-red-500 text-white rounded-full text-[9px] flex items-center justify-center font-semibold">{activeFilterCount}</span>
+                      )}
+                    </button>
+                  )}
+                  <button onClick={() => exportCSV(expenses, income, selectedMonth)} title={`Export ${getMonthLabelFull(selectedMonth)} as CSV`}
+                    className="hidden sm:flex items-center gap-1.5 h-8 px-3 rounded-full border border-gray-200 bg-white shadow-sm text-xs font-semibold text-black hover:border-gray-400 transition-all whitespace-nowrap">
+                    <Download size={13} /> Export CSV
+                  </button>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4">
             {/* Pools / Budgets */}
             <div className={dashboardTab === 'pools' ? '' : 'hidden'}>
             {expensePools.length === 0 ? (
@@ -4132,7 +4266,7 @@ export default function Dashboard() {
                 <p className="text-xs text-gray-400 font-medium mb-0.5">No budgets yet</p>
                 <p className="text-xs text-gray-300 mb-3">Set a monthly budget and log daily usage</p>
                 <button onClick={() => setShowAddPool(true)}
-                  className="inline-flex items-center gap-1.5 bg-black text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-all">
+                  className="inline-flex items-center gap-1.5 bg-black text-white text-xs font-medium px-3.5 py-1.5 rounded-full hover:bg-gray-800 transition-all">
                   <Plus size={12} /> Create first budget
                 </button>
               </div>
@@ -4145,7 +4279,7 @@ export default function Dashboard() {
                   const days = daysLeftInMonth(selectedMonth)
                   return (
                     <div key={pool.id} onClick={() => setOpenPool(pool)}
-                      className="border border-gray-100 rounded-xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
+                      className="border border-gray-100 rounded-2xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <div className={`w-6 h-6 ${cfg.bg} rounded-lg flex items-center justify-center shrink-0`}>
@@ -4198,7 +4332,7 @@ export default function Dashboard() {
                 <p className="text-xs text-gray-400 font-medium mb-0.5">No split bills yet</p>
                 <p className="text-xs text-gray-300 mb-3">Split a bill and track who owes you</p>
                 <button onClick={() => setShowAddSplitBill(true)}
-                  className="inline-flex items-center gap-1.5 bg-black text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-all">
+                  className="inline-flex items-center gap-1.5 bg-black text-white text-xs font-medium px-3.5 py-1.5 rounded-full hover:bg-gray-800 transition-all">
                   <Plus size={12} /> Create first split
                 </button>
               </div>
@@ -4211,7 +4345,7 @@ export default function Dashboard() {
                   const myShare = Math.max(bill.total_amount - totalOwed, 0)
                   return (
                     <div key={bill.id} onClick={() => setOpenSplitBill(bill)}
-                      className="border border-gray-100 rounded-xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
+                      className="border border-gray-100 rounded-2xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <div className={`w-6 h-6 ${cfg.bg} rounded-lg flex items-center justify-center shrink-0`}>
@@ -4259,7 +4393,7 @@ export default function Dashboard() {
                 <p className="text-xs text-gray-400 font-medium mb-0.5">No debts yet</p>
                 <p className="text-xs text-gray-300 mb-3">Track money people owe you</p>
                 <button onClick={() => setShowAddDebt(true)}
-                  className="inline-flex items-center gap-1.5 bg-black text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-all">
+                  className="inline-flex items-center gap-1.5 bg-black text-white text-xs font-medium px-3.5 py-1.5 rounded-full hover:bg-gray-800 transition-all">
                   <Plus size={12} /> Add first debt
                 </button>
               </div>
@@ -4267,7 +4401,7 @@ export default function Dashboard() {
               <div className="flex flex-col gap-2">
                 {debtsWithStats.map(({ debt, paid, remaining, pct, settled, overdue }) => (
                   <div key={debt.id} onClick={() => setOpenDebt(debt)}
-                    className="border border-gray-100 rounded-xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
+                    className="border border-gray-100 rounded-2xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="flex items-center gap-2 min-w-0">
                         <div className="w-6 h-6 bg-gray-50 rounded-lg flex items-center justify-center shrink-0">
@@ -4314,7 +4448,7 @@ export default function Dashboard() {
                 <p className="text-xs text-gray-400 font-medium mb-0.5">No savings goals yet</p>
                 <p className="text-xs text-gray-300 mb-3">Set a target and track your progress</p>
                 <button onClick={() => setShowAddGoal(true)}
-                  className="inline-flex items-center gap-1.5 bg-black text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-gray-800 transition-all">
+                  className="inline-flex items-center gap-1.5 bg-black text-white text-xs font-medium px-3.5 py-1.5 rounded-full hover:bg-gray-800 transition-all">
                   <Plus size={12} /> Create first goal
                 </button>
               </div>
@@ -4334,7 +4468,7 @@ export default function Dashboard() {
                   const dotColor = done ? 'bg-emerald-500' : pct >= 75 ? 'bg-blue-500' : pct >= 40 ? 'bg-amber-400' : 'bg-rose-300'
                   return (
                     <div key={goal.id} onClick={() => setOpenGoal(goal)}
-                      className="border border-gray-100 rounded-xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
+                      className="border border-gray-100 rounded-2xl p-3.5 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group">
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="flex items-center gap-2 min-w-0">
                           <div className={`w-2 h-2 rounded-full shrink-0 ${dotColor}`} />
@@ -4372,31 +4506,23 @@ export default function Dashboard() {
 
             {dashboardTab === 'expenses' && (
               <>
-                <div className="flex gap-2 mb-2" style={{ alignItems: 'center' }}>
+                <div className="flex gap-2 mb-3">
                   <div className="flex gap-1.5 overflow-x-auto pb-0.5 flex-1 min-w-0 thin-scrollbar" onWheel={scrollHorizontally}>
                     {(['all', ...Object.keys(CATEGORY_CONFIG)] as (Category | 'all')[]).map(f => {
                       const isAll = f === 'all'; const active = activeFilter === f; const cfg = isAll ? null : CATEGORY_CONFIG[f as Category]
                       return (
                         <button key={f} onClick={() => setActiveFilter(f)}
-                          className={`flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium whitespace-nowrap border transition-all shrink-0 ${active ? 'bg-black text-white border-black' : 'text-gray-500 border-gray-200 hover:border-gray-400 bg-white'}`}>
+                          className={`flex items-center gap-1.5 h-8 px-3 rounded-full text-xs font-medium whitespace-nowrap border transition-all shrink-0 ${active ? 'bg-black text-white border-black' : 'text-gray-600 border-gray-200 hover:border-gray-400 bg-white'}`}>
                           {!isAll && <span className={active ? 'text-white' : cfg!.text}>{cfg!.icon}</span>}
                           {isAll ? 'All' : cfg!.label.split(' ')[0]}
                         </button>
                       )
                     })}
                   </div>
-                  <button
-                    onClick={() => setShowFilters(v => !v)}
-                    className={`relative flex items-center justify-center w-7 h-7 rounded-lg border transition-all shrink-0 self-start mt-0.5 ${showFilters || activeFilterCount > 0 ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-500 hover:border-gray-400 bg-white'}`}>
-                    <SlidersHorizontal size={12} />
-                    {activeFilterCount > 0 && !showFilters && (
-                      <span className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-red-500 text-white rounded-full text-[8px] flex items-center justify-center font-medium">{activeFilterCount}</span>
-                    )}
-                  </button>
                 </div>
 
                 {showFilters && (
-                  <div className="border border-gray-100 rounded-xl p-3 mb-3 animate-slide-up">
+                  <div className="border border-gray-100 bg-gray-50/50 rounded-2xl p-3.5 mb-3 animate-slide-up">
                     <div className="grid grid-cols-2 gap-2 mb-2">
                       <div>
                         <label className="text-[10px] text-gray-400 mb-1 block uppercase tracking-wide">Min amount</label>
@@ -4404,7 +4530,7 @@ export default function Dashboard() {
                           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 select-none">Rp</span>
                           <input type="text" inputMode="numeric" value={minAmount}
                             onChange={e => setMinAmount(e.target.value.replace(/[^0-9]/g, ''))} placeholder="0"
-                            className="w-full border border-gray-200 rounded-lg pl-8 pr-2 py-1.5 text-xs text-black focus:outline-none focus:border-black transition" />
+                            className="w-full bg-white border border-gray-200 rounded-full pl-8 pr-3 py-1.5 text-xs text-black focus:outline-none focus:border-black transition" />
                         </div>
                       </div>
                       <div>
@@ -4413,7 +4539,7 @@ export default function Dashboard() {
                           <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-gray-400 select-none">Rp</span>
                           <input type="text" inputMode="numeric" value={maxAmount}
                             onChange={e => setMaxAmount(e.target.value.replace(/[^0-9]/g, ''))} placeholder="∞"
-                            className="w-full border border-gray-200 rounded-lg pl-8 pr-2 py-1.5 text-xs text-black focus:outline-none focus:border-black transition" />
+                            className="w-full bg-white border border-gray-200 rounded-full pl-8 pr-3 py-1.5 text-xs text-black focus:outline-none focus:border-black transition" />
                         </div>
                       </div>
                     </div>
@@ -4427,7 +4553,7 @@ export default function Dashboard() {
                           { val: 'amount-asc',  label: 'Lowest' },
                         ] as { val: SortOrder; label: string }[]).map(s => (
                           <button key={s.val} onClick={() => setSortOrder(s.val)}
-                            className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${sortOrder === s.val ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
+                            className={`px-3 py-1 rounded-full text-xs font-medium border transition-all ${sortOrder === s.val ? 'bg-black text-white border-black' : 'border-gray-200 text-gray-500 hover:border-gray-400'}`}>
                             {s.label}
                           </button>
                         ))}
@@ -4460,8 +4586,8 @@ export default function Dashboard() {
                   {filteredExpenses.map((exp, idx) => {
                     const cfg = CATEGORY_CONFIG[exp.category]
                     return (
-                      <div key={exp.id} className="row-item flex items-center gap-3 border border-gray-100 rounded-xl px-3 sm:px-4 py-3 hover:bg-gray-50 transition-all" style={{ animationDelay: `${idx * 0.03}s` }}>
-                        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${cfg.bg}`}><span className={cfg.text}>{cfg.icon}</span></div>
+                      <div key={exp.id} className="row-item flex items-center gap-3 border border-gray-100 rounded-2xl px-3 sm:px-4 py-3 hover:bg-gray-50 transition-all" style={{ animationDelay: `${idx * 0.03}s` }}>
+                        <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${cfg.bg}`}><span className={cfg.text}>{cfg.icon}</span></div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 truncate">{exp.title}</p>
                           <div className="flex items-center gap-2 mt-0.5">
@@ -4497,8 +4623,8 @@ export default function Dashboard() {
                   {filteredIncome.map((inc, idx) => {
                     const cfg = INCOME_CONFIG[inc.category]
                     return (
-                      <div key={inc.id} className="row-item flex items-center gap-3 border border-gray-100 rounded-xl px-3 sm:px-4 py-3 hover:bg-gray-50 transition-all" style={{ animationDelay: `${idx * 0.03}s` }}>
-                        <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-green-50"><span className="text-green-700">{cfg.icon}</span></div>
+                      <div key={inc.id} className="row-item flex items-center gap-3 border border-gray-100 rounded-2xl px-3 sm:px-4 py-3 hover:bg-gray-50 transition-all" style={{ animationDelay: `${idx * 0.03}s` }}>
+                        <div className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 bg-green-50"><span className="text-green-700">{cfg.icon}</span></div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium text-gray-900 truncate">{inc.title}</p>
                           <div className="flex items-center gap-2 mt-0.5">
@@ -4541,11 +4667,11 @@ export default function Dashboard() {
                     const dueSoon    = !isPaid && daysLeft >= 0 && daysLeft <= 3
                     const paying     = payingBillId === r.id
                     return (
-                      <div key={r.id} className={`row-item flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 border rounded-xl px-3 sm:px-4 py-3 transition-all ${
+                      <div key={r.id} className={`row-item flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3 border rounded-2xl px-3 sm:px-4 py-3 transition-all ${
                         isPaid ? 'border-green-200 bg-green-50/30' : overdue ? 'border-red-200 bg-red-50/30' : dueSoon ? 'border-amber-200 bg-amber-50/20' : 'border-gray-100 hover:bg-gray-50'
                       }`} style={{ animationDelay: `${idx * 0.03}s` }}>
                         <div className="flex items-center gap-3 w-full sm:w-auto sm:flex-1 min-w-0">
-                          <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${cfg.bg}`}>
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${cfg.bg}`}>
                             <span className={cfg.text}>{cfg.icon}</span>
                           </div>
                           <div className="flex-1 min-w-0">
@@ -4595,14 +4721,10 @@ export default function Dashboard() {
                 </div>
               )
             )}
+            </div>
           </div>
-
-          <div className="hidden sm:flex justify-center mt-8 pt-6 border-t border-gray-100">
-            <button onClick={() => exportCSV(expenses, income, selectedMonth)}
-              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-black transition-colors">
-              <Download size={12} /> Export {getMonthLabelFull(selectedMonth)} as CSV
-            </button>
-          </div>
+            )
+          })()}
 
         </div>
       </div>

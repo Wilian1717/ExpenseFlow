@@ -8,7 +8,7 @@ import ReactDOM from 'react-dom'
 import {
   UtensilsCrossed, Car, ShoppingBag, HeartPulse, User, Home, Zap, Tv,
   PiggyBank, MoreHorizontal, Briefcase, DollarSign, BarChart2, TrendingUp,
-  TrendingDown, Flame, AlertTriangle, MoreVertical, ChevronDown, Calendar, Check
+  TrendingDown, Flame, AlertTriangle, MoreVertical, ChevronDown, Calendar, Check, Lightbulb
 } from 'lucide-react'
 
 export type Category = 'food' | 'transport' | 'shopping' | 'health' | 'personal' | 'housing' | 'utilities' | 'entertainment' | 'savings' | 'other'
@@ -216,11 +216,10 @@ export function savingsTone(rate: number): { text: string; chip: string } {
 // Monday-first: ISO / Indonesian convention, and it keeps Sat+Sun adjacent so
 // the weekend reads as one visual block.
 export const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
-// Warm sequential "heat" ramp (yellow -> amber -> orange -> deep red).
-// Sequential, not traffic-light: it says "more", never "bad". Luminance drops
-// monotonically so it still reads correctly in grayscale and for red-green
-// colour blindness — which a green-to-red ramp would not.
-export const HEAT_COLORS = ['#ffffff', '#fef3c7', '#fdba74', '#f97316', '#b91c1c']
+// GitHub-contribution style sequential ramp (empty gray -> light -> deep green).
+// Single-hue and sequential: it says "more", never "bad". Luminance drops
+// monotonically so it still reads correctly in grayscale.
+export const HEAT_COLORS = ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39']
 
 /**
  * Heat level 0-4 per day, by quantile (empirical-CDF rank) over elapsed days
@@ -370,10 +369,13 @@ export function CollapsibleSection({ title, icon, children, defaultOpen = true, 
 }
 
 // ─── Custom Month Picker Dropdown ────────────────────────────────────────────
-export function MonthPickerDropdown({ months, selected, onChange }: {
+export function MonthPickerDropdown({ months, selected, onChange, variant = 'default', size = 'md', align = 'left' }: {
   months: { key: string; label: string; total: number }[]
   selected: string
   onChange: (key: string) => void
+  variant?: 'default' | 'pill'
+  size?: 'sm' | 'md'
+  align?: 'left' | 'right'
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -391,19 +393,32 @@ export function MonthPickerDropdown({ months, selected, onChange }: {
 
   return (
     <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(v => !v)}
-        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border ${
-          open ? 'bg-black text-white border-black' : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
-        }`}
-      >
-        <Calendar size={12} className={open ? 'text-white' : 'text-gray-400'} />
-        {selectedLabel}
-        <ChevronDown size={12} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
-      </button>
+      {variant === 'pill' ? (
+        <button
+          onClick={() => setOpen(v => !v)}
+          className={`flex items-center rounded-full border shadow-sm transition-all whitespace-nowrap ${
+            size === 'sm' ? 'gap-1.5 h-8 px-3 text-xs font-semibold' : 'gap-1.5 h-8 px-3 text-sm font-semibold'
+          } ${open ? 'bg-black text-white border-black' : 'bg-white text-black border-gray-200 hover:border-gray-400'}`}
+        >
+          <Calendar size={size === 'sm' ? 12 : 13} className={open ? 'text-white' : 'text-black'} />
+          {selectedLabel}
+          <ChevronDown size={size === 'sm' ? 12 : 13} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        </button>
+      ) : (
+        <button
+          onClick={() => setOpen(v => !v)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all border ${
+            open ? 'bg-black text-white border-black' : 'bg-white text-gray-700 border-gray-200 hover:border-gray-400'
+          }`}
+        >
+          <Calendar size={12} className={open ? 'text-white' : 'text-gray-400'} />
+          {selectedLabel}
+          <ChevronDown size={12} className={`transition-transform duration-200 ${open ? 'rotate-180' : ''}`} />
+        </button>
+      )}
 
       {open && (
-        <div className="absolute left-0 top-full mt-2 w-52 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[500] animate-slide-up">
+        <div className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-2 w-52 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[500] animate-slide-up`}>
           <div className="px-3 pt-3 pb-1">
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Select month</p>
           </div>
@@ -437,12 +452,15 @@ export function MonthPickerDropdown({ months, selected, onChange }: {
 }
 
 // ─── Smart Insights ───────────────────────────────────────────────────────────
-export function SmartInsightsContent({ thisMonthTotal, lastMonthTotal, avgPerDay, categoryTotals, thisMonthIncomeTot, netSavings, budgets, budgetSpend }: {
+type SmartInsightsProps = {
   thisMonthTotal: number; lastMonthTotal: number; avgPerDay: number
   categoryTotals: Partial<Record<Category, number>>; thisMonthIncomeTot: number
   netSavings: number; budgets: Budget[]; budgetSpend: Partial<Record<Category, number>>
-}) {
-  const insights: { icon: React.ReactNode; text: string; color: string; bg: string }[] = []
+}
+type Insight = { icon: React.ReactNode; text: string; color: string; bg: string }
+
+export function buildInsights({ thisMonthTotal, lastMonthTotal, avgPerDay, categoryTotals, thisMonthIncomeTot, netSavings, budgets, budgetSpend }: SmartInsightsProps): Insight[] {
+  const insights: Insight[] = []
   if (lastMonthTotal > 0 && thisMonthTotal > 0) {
     const pct = ((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100
     if (pct > 10) insights.push({ icon: <TrendingUp size={13} />, text: `Spending is up ${pct.toFixed(0)}% vs last month`, color: 'text-red-700', bg: 'bg-red-50' })
@@ -468,6 +486,11 @@ export function SmartInsightsContent({ thisMonthTotal, lastMonthTotal, avgPerDay
     if (pct >= 80 && pct < 100) insights.push({ icon: <AlertTriangle size={13} />, text: `${CATEGORY_CONFIG[b.category].label} budget is ${pct.toFixed(0)}% used`, color: 'text-amber-700', bg: 'bg-amber-50' })
     else if (pct >= 100) insights.push({ icon: <AlertTriangle size={13} />, text: `${CATEGORY_CONFIG[b.category].label} budget exceeded by ${fmtShort(spent - b.limit_amount)}`, color: 'text-red-700', bg: 'bg-red-50' })
   })
+  return insights
+}
+
+export function SmartInsightsContent(props: SmartInsightsProps) {
+  const insights = buildInsights(props)
   if (insights.length === 0) return <p className="text-xs text-gray-300 py-2 text-center">No insights yet — keep tracking!</p>
   return (
     <div className="flex flex-col gap-2">
@@ -477,6 +500,52 @@ export function SmartInsightsContent({ thisMonthTotal, lastMonthTotal, avgPerDay
           <p className={`text-xs leading-relaxed ${ins.color}`}>{ins.text}</p>
         </div>
       ))}
+    </div>
+  )
+}
+
+// Beginner-view card version: green when every insight is good news, neutral otherwise
+// so a warning never sits on a "good news" background.
+export function SmartInsightsCard({ cardClass, ...props }: SmartInsightsProps & { cardClass: string }) {
+  const [open, setOpen] = useState(true)
+  const insights = buildInsights(props)
+  const allPositive = insights.length > 0 && insights.every(i => i.color === 'text-green-700')
+  return (
+    <div className={`relative overflow-hidden mb-4 ${allPositive
+      ? 'rounded-2xl border border-emerald-100 bg-linear-to-br from-emerald-50 via-emerald-50/60 to-white shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.10)]'
+      : cardClass}`}>
+      {allPositive && (
+        <svg aria-hidden="true" viewBox="0 0 120 80" className="hidden sm:block absolute right-4 bottom-2 w-24 h-16 text-emerald-500 opacity-[0.18] pointer-events-none">
+          <rect x="6"  y="56" width="16" height="20" rx="4" fill="currentColor" />
+          <rect x="34" y="44" width="16" height="32" rx="4" fill="currentColor" />
+          <rect x="62" y="30" width="16" height="46" rx="4" fill="currentColor" />
+          <rect x="90" y="14" width="16" height="62" rx="4" fill="currentColor" />
+          <path d="M8 40 C 40 34, 70 22, 104 4" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+          <path d="M92 4 L106 3 L102 16" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      )}
+      <button onClick={() => setOpen(v => !v)} aria-expanded={open}
+        className="relative w-full flex items-center gap-2.5 px-4 pt-3 pb-2 text-left">
+        <Lightbulb size={14} className="text-black shrink-0" />
+        <p className="text-xs font-semibold text-black uppercase tracking-wider flex-1">Smart insights</p>
+        <ChevronDown size={14} className={`text-gray-400 transition-transform duration-300 ${open ? 'rotate-0' : '-rotate-90'}`} />
+      </button>
+      <div style={{ maxHeight: open ? '2000px' : '0px', opacity: open ? 1 : 0, transition: 'max-height 0.35s ease, opacity 0.25s ease', overflow: 'hidden' }}>
+        <div className="relative px-4 pb-3 sm:pr-32">
+          {insights.length === 0 ? (
+            <p className="text-xs text-gray-300 py-2 text-center">No insights yet — keep tracking!</p>
+          ) : (
+            <div className="flex flex-col gap-1">
+              {insights.map((ins, i) => (
+                <div key={i} className="flex items-center gap-2.5 py-1">
+                  <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${allPositive ? 'bg-white/70' : ins.bg} ${ins.color}`}>{ins.icon}</span>
+                  <p className={`text-xs leading-snug ${ins.color}`}>{ins.text}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   )
 }
@@ -569,12 +638,13 @@ export function CatIcon({ category, size = 36 }: { category: Category; size?: nu
 
 // ─── Daily spending heatmap ───────────────────────────────────────────────────
 export function SpendingHeatmap({
-  data, monthKey, size = 'compact', onSelectDay, showLegend = true,
+  data, monthKey, size = 'compact', onSelectDay, showLegend = true, showWeekTotals = false,
 }: {
   data: DailySpendData; monthKey: string
   size?: 'compact' | 'comfortable'
   onSelectDay?: (day: number) => void
   showLegend?: boolean
+  showWeekTotals?: boolean
 }) {
   const [hover, setHover] = useState<number | null>(null)
   const [focusDay, setFocusDay] = useState<number>(data.todayDay ?? 1)
@@ -613,17 +683,70 @@ export function SpendingHeatmap({
   const hoverDay = hover !== null ? data.days[hover - 1] : null
   const hoverCol = hoverDay ? (data.leadingBlanks + hoverDay.day - 1) % 7 : 0
   const hoverRow = hoverDay ? Math.floor((data.leadingBlanks + hoverDay.day - 1) / 7) : 0
+  const rowCount = Math.ceil((data.leadingBlanks + data.daysInMonth) / 7)
+
+  // Week-total column (optional): fixed width, so tooltips are positioned
+  // against the 7 day-columns only and stay centred over the hovered cell.
+  const gapRem  = compact ? 0.25 : 0.375   // matches gap-1 / gap-1.5
+  const totalW  = showWeekTotals ? `(3.5rem + ${gapRem}rem)` : '0rem'
+  const colTemplate = showWeekTotals ? 'repeat(7, minmax(0, 1fr)) 3.5rem' : 'repeat(7, minmax(0, 1fr))'
+  const gapCls  = compact ? 'gap-1' : 'gap-1.5'
+
+  // Flat cell list (blanks + days + trailing blanks), chunked into weeks
+  type Cell = { kind: 'blank' } | { kind: 'day'; d: DaySpend; i: number }
+  const cells: Cell[] = [
+    ...Array.from({ length: data.leadingBlanks }, () => ({ kind: 'blank' as const })),
+    ...data.days.map((d, i) => ({ kind: 'day' as const, d, i })),
+  ]
+  while (cells.length % 7) cells.push({ kind: 'blank' })
+  const weeks: Cell[][] = []
+  for (let r = 0; r < cells.length; r += 7) weeks.push(cells.slice(r, r + 7))
+
+  const renderDay = (d: DaySpend, i: number) => {
+    const lvl = levels[i]
+    const onDark = lvl >= 3
+    const common = `heat-cell aspect-square ${compact ? 'rounded-[7px] text-[10px]' : 'rounded-lg text-[10px]'} flex items-center justify-center font-medium tabular-nums select-none`
+    if (d.isFuture) {
+      return (
+        <div key={d.day} role="gridcell" aria-disabled="true"
+          aria-label={`${d.day} ${MONTHS[mo - 1]}, upcoming`}
+          className={`${common} text-gray-300 cursor-default`}
+          style={{ animationDelay: `${0.012 * i}s`, background: '#f7f8f9' }}>
+          {d.day}
+        </div>
+      )
+    }
+    return (
+      <button key={d.day} role="gridcell" data-day={d.day}
+        tabIndex={d.day === focusDay ? 0 : -1}
+        aria-label={`${d.day} ${MONTHS[mo - 1]}, ${d.total > 0 ? `${fmt(d.total)} across ${d.count} ${d.count === 1 ? 'transaction' : 'transactions'}` : 'no spending'}`}
+        onMouseEnter={() => setHover(d.day)}
+        onMouseLeave={() => setHover(h => h === d.day ? null : h)}
+        onFocus={() => setHover(d.day)}
+        onBlur={() => setHover(h => h === d.day ? null : h)}
+        onKeyDown={e => onKeyDown(e, d.day)}
+        onClick={() => onSelectDay?.(d.day)}
+        className={`${common} ${onDark ? 'text-white' : lvl === 0 ? 'text-gray-500' : 'text-[#0f3d1f]'} ${onSelectDay ? 'cursor-pointer' : 'cursor-default'} focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black`}
+        style={{
+          animationDelay: `${0.012 * i}s`,
+          backgroundColor: HEAT_COLORS[lvl],
+          boxShadow: d.isToday ? `0 0 0 2px #ffffff, 0 0 0 3.5px #111110` : undefined,
+        }}>
+        {d.day}
+      </button>
+    )
+  }
 
   return (
-    <div className={`w-full mx-auto ${compact ? 'max-w-[360px]' : 'max-w-[520px]'}`}>
+    <div className={`w-full mx-auto ${compact ? (showWeekTotals ? 'max-w-[340px]' : 'max-w-[300px]') : 'max-w-[520px]'}`}>
       <div className="relative" ref={gridRef}>
         {/* Tooltip — owned by the grid so it can escape individual cells */}
         {hoverDay && (
           <div
             className="absolute px-2 py-1 rounded-md bg-black text-white text-[11px] font-medium whitespace-nowrap pointer-events-none -translate-x-1/2 z-10"
             style={{
-              left: `${Math.min(Math.max(((hoverCol + 0.5) / 7) * 100, 14), 86)}%`,
-              top: `calc(${hoverRow} * ((100% - 1.25rem) / ${Math.ceil((data.leadingBlanks + data.daysInMonth) / 7)}) + 0.1rem)`,
+              left: `calc((100% - ${totalW}) * ${Math.min(Math.max((hoverCol + 0.5) / 7, 0.14), 0.86)})`,
+              top: `calc(${hoverRow} * ((100% - 1.25rem) / ${rowCount}) + 0.1rem)`,
               transform: 'translate(-50%, -110%)',
             }}>
             {dateLabel(hoverDay.day)} · {hoverDay.total > 0 ? `${fmt(hoverDay.total)} · ${hoverDay.count} ${hoverDay.count === 1 ? 'transaction' : 'transactions'}` : 'No spending'}
@@ -631,77 +754,55 @@ export function SpendingHeatmap({
         )}
 
         <div role="grid" aria-label={`Daily spending for ${getMonthLabelFull(monthKey)}`}>
-          <div role="row" className={`grid grid-cols-7 ${compact ? 'gap-1' : 'gap-1.5'} mb-1`}>
+          <div role="row" className={`grid ${gapCls} mb-1`} style={{ gridTemplateColumns: colTemplate }}>
             {WEEKDAY_LABELS.map((w, i) => (
               <div key={w} role="columnheader" aria-label={w}
                 className={`text-center ${compact ? 'text-[9px]' : 'text-[10px]'} font-medium ${i >= 5 ? 'text-gray-300' : 'text-gray-400'}`}>
                 {compact ? w[0] : w}
               </div>
             ))}
+            {showWeekTotals && (
+              <div role="columnheader" className={`text-right ${compact ? 'text-[9px]' : 'text-[10px]'} font-medium text-gray-400`}>Week</div>
+            )}
           </div>
-          <div className={`grid grid-cols-7 ${compact ? 'gap-1' : 'gap-1.5'}`}>
-            {Array.from({ length: data.leadingBlanks }).map((_, i) => <div key={`b${i}`} aria-hidden="true" />)}
-            {data.days.map((d, i) => {
-              const lvl = levels[i]
-              // Only the deepest tone is dark enough to need light text; white on
-              // orange-500 would fail contrast, dark warm text on it passes.
-              const onDark = lvl >= 4
-              const common = `heat-cell aspect-square ${compact ? 'rounded-md text-[9px]' : 'rounded-lg text-[10px]'} flex items-center justify-center font-medium select-none`
-              if (d.isFuture) {
-                return (
-                  <div key={d.day} role="gridcell" aria-disabled="true"
-                    aria-label={`${d.day} ${MONTHS[mo - 1]}, upcoming`}
-                    className={`${common} text-gray-200 cursor-default`}
-                    style={{ animationDelay: `${0.012 * i}s`, background: '#fff', border: '1px dashed #f0f0ee' }}>
-                    {d.day}
+          <div className={`grid ${gapCls}`} style={{ gridTemplateColumns: colTemplate }}>
+            {weeks.map((week, r) => {
+              const elapsed = week.filter((c): c is Extract<Cell, { kind: 'day' }> => c.kind === 'day' && !c.d.isFuture)
+              const weekTotal = elapsed.reduce((s, c) => s + c.d.total, 0)
+              return [
+                ...week.map((c, k) => c.kind === 'blank'
+                  ? <div key={`b${r}-${k}`} aria-hidden="true" />
+                  : renderDay(c.d, c.i)),
+                showWeekTotals && (
+                  <div key={`w${r}`} aria-label={elapsed.length ? `Week total ${fmt(weekTotal)}` : 'Week not started'}
+                    className={`flex items-center justify-end text-[10px] tabular-nums ${elapsed.length && weekTotal > 0 ? 'text-gray-600 font-medium' : 'text-gray-300'}`}>
+                    {elapsed.length ? fmtShort(weekTotal) : ''}
                   </div>
-                )
-              }
-              return (
-                <button key={d.day} role="gridcell" data-day={d.day}
-                  tabIndex={d.day === focusDay ? 0 : -1}
-                  aria-label={`${d.day} ${MONTHS[mo - 1]}, ${d.total > 0 ? `${fmt(d.total)} across ${d.count} ${d.count === 1 ? 'transaction' : 'transactions'}` : 'no spending'}`}
-
-                  onMouseEnter={() => setHover(d.day)}
-                  onMouseLeave={() => setHover(h => h === d.day ? null : h)}
-                  onFocus={() => setHover(d.day)}
-                  onBlur={() => setHover(h => h === d.day ? null : h)}
-                  onKeyDown={e => onKeyDown(e, d.day)}
-                  onClick={() => onSelectDay?.(d.day)}
-                  className={`${common} ${onDark ? 'text-white' : lvl === 0 ? 'text-gray-400' : 'text-amber-950'} ${onSelectDay ? 'cursor-pointer' : 'cursor-default'} focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black`}
-                  style={{
-                    animationDelay: `${0.012 * i}s`,
-                    backgroundColor: HEAT_COLORS[lvl],
-                    border: lvl === 0 ? '1px solid #e5e7eb' : '1px solid transparent',
-                    boxShadow: d.isToday ? `inset 0 0 0 1.5px ${onDark ? '#ffffff' : '#111110'}` : undefined,
-                  }}>
-                  {d.day}
-                </button>
-              )
+                ),
+              ]
             })}
           </div>
         </div>
       </div>
 
       {showLegend && (
-        <div className="flex items-center justify-between gap-2 mt-2.5 flex-wrap">
+        <div className="flex items-center justify-between gap-2 mt-3 flex-wrap">
           {data.spentDayCount > 0 ? (
             <div className="flex items-center gap-1">
-              <span className="text-[10px] text-gray-400">Less</span>
+              <span className="text-[10px] text-gray-400 mr-0.5">Less</span>
               {HEAT_COLORS.map((c, i) => (
-                <span key={i} className="w-2.5 h-2.5 rounded-sm"
-                  style={{ backgroundColor: c, border: i === 0 ? '1px solid #e5e7eb' : '1px solid transparent' }} />
+                <span key={i} className="w-2.5 h-2.5 rounded-[3px]" style={{ backgroundColor: c }} />
               ))}
-              <span className="text-[10px] text-gray-400">More</span>
+              <span className="text-[10px] text-gray-400 ml-0.5">More</span>
             </div>
           ) : <span />}
           <div className="flex items-center gap-2.5">
             <span className="flex items-center gap-1 text-[10px] text-gray-400">
-              <span className="w-2.5 h-2.5 rounded-sm" style={{ background: '#fff', border: '1px solid #e5e7eb' }} /> No spending
+              <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: HEAT_COLORS[0] }} /> No spending
             </span>
             {data.isCurrentMonth && (
               <span className="flex items-center gap-1 text-[10px] text-gray-400">
-                <span className="w-2.5 h-2.5 rounded-sm" style={{ background: '#fff', border: '1px dashed #d8d8d4' }} /> Upcoming
+                <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: '#f7f8f9', border: '1px solid #eceef0' }} /> Upcoming
               </span>
             )}
           </div>
@@ -712,32 +813,37 @@ export function SpendingHeatmap({
 }
 
 // ─── Weekday averages — column-aligned under the heatmap ──────────────────────
-export function WeekdayBars({ stats, size = 'compact' }: { stats: DowStat[]; size?: 'compact' | 'comfortable' }) {
+export function WeekdayBars({ stats, size = 'compact', withWeekColumn = false }: {
+  stats: DowStat[]; size?: 'compact' | 'comfortable'
+  withWeekColumn?: boolean   // match SpendingHeatmap showWeekTotals so columns stay aligned
+}) {
   const [hover, setHover] = useState<number | null>(null)
   const compact = size === 'compact'
   const maxAvg = Math.max(...stats.map(s => s.avg), 1)
   const heaviest = stats.reduce<DowStat | null>((m, s) => s.occurrences > 0 && (!m || s.avg > m.avg) ? s : m, null)
+  const totalW = withWeekColumn ? `(3.5rem + ${compact ? 0.25 : 0.375}rem)` : '0rem'
 
   return (
-    <div className={`w-full mx-auto ${compact ? 'max-w-[360px]' : 'max-w-[520px]'} mt-2`}>
+    <div className={`w-full mx-auto ${compact ? (withWeekColumn ? 'max-w-[340px]' : 'max-w-[300px]') : 'max-w-[520px]'} mt-3`}>
       <div className="relative">
         {hover !== null && stats[hover].occurrences > 0 && (
           <div className="absolute px-2 py-1 rounded-md bg-black text-white text-[11px] font-medium whitespace-nowrap pointer-events-none -translate-x-1/2 z-10 -top-1"
-            style={{ left: `${Math.min(Math.max(((hover + 0.5) / 7) * 100, 16), 84)}%`, transform: 'translate(-50%, -100%)' }}>
+            style={{ left: `calc((100% - ${totalW}) * ${Math.min(Math.max((hover + 0.5) / 7, 0.16), 0.84)})`, transform: 'translate(-50%, -100%)' }}>
             {stats[hover].label}s · {fmt(stats[hover].avg)} average · {stats[hover].occurrences} so far
           </div>
         )}
-        <div className={`grid grid-cols-7 ${compact ? 'gap-1' : 'gap-1.5'} items-end`} style={{ height: compact ? 40 : 52 }}>
+        <div className={`grid ${compact ? 'gap-1' : 'gap-1.5'} items-end`}
+          style={{ height: compact ? 32 : 52, gridTemplateColumns: withWeekColumn ? 'repeat(7, minmax(0, 1fr)) 3.5rem' : 'repeat(7, minmax(0, 1fr))' }}>
           {stats.map((s, i) => (
             <div key={s.idx} className="h-full flex items-end justify-center"
               onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(h => h === i ? null : h)}>
               {s.occurrences === 0 ? (
-                <div className="w-full rounded-sm" style={{ height: 3, border: '1px dashed #eeeeec' }} />
+                <div className={compact ? 'w-3/5 rounded-full bg-gray-100' : 'w-full rounded-sm'} style={compact ? { height: 3 } : { height: 3, border: '1px dashed #eeeeec' }} />
               ) : (
-                <div className="heat-bar w-full rounded-t-sm"
+                <div className={`heat-bar ${compact ? 'w-3/5 rounded-full' : 'w-full rounded-t-sm'}`}
                   style={{
                     height: `${Math.max((s.avg / maxAvg) * 100, 3)}%`,
-                    backgroundColor: heaviest && s.idx === heaviest.idx ? HEAT_COLORS[4] : HEAT_COLORS[2],
+                    backgroundColor: heaviest && s.idx === heaviest.idx ? HEAT_COLORS[4] : HEAT_COLORS[1],
                   }} />
               )}
             </div>
@@ -745,6 +851,112 @@ export function WeekdayBars({ stats, size = 'compact' }: { stats: DowStat[]; siz
         </div>
       </div>
       <p className="text-[10px] text-gray-300 text-center mt-1.5">Average spending by weekday</p>
+    </div>
+  )
+}
+
+// ─── Spending pace: running total this month vs last month ───────────────────
+// Both series are cumulative per day-of-month. Comparing "by the same day"
+// answers the beginner question "am I spending faster than last month?"
+export function SpendingPaceChart({ thisSeries, lastSeries, daysInMonth }: {
+  thisSeries: number[]   // cumulative, one value per elapsed day of the selected month
+  lastSeries: number[]   // cumulative, one value per day of the previous month
+  daysInMonth: number
+}) {
+  const [hover, setHover] = useState<number | null>(null)
+  const gradId = useId()
+  if (thisSeries.length === 0) return null
+
+  const hasLast  = lastSeries.length > 0 && lastSeries[lastSeries.length - 1] > 0
+  const elapsed  = thisSeries.length
+  const thisNow  = thisSeries[elapsed - 1]
+  const lastSame = hasLast ? lastSeries[Math.min(elapsed, lastSeries.length) - 1] : 0
+  const diff     = thisNow - lastSame
+  const same     = hasLast && Math.abs(diff) <= Math.max(lastSame * 0.01, 1)
+
+  const N  = Math.max(daysInMonth, hasLast ? lastSeries.length : 0, 2)
+  const H  = 72
+  const max = Math.max(...thisSeries, ...(hasLast ? lastSeries : [0]), 1) * 1.08
+  const xPct = (day: number) => ((day - 1) / (N - 1)) * 100
+  const y    = (v: number) => H - (v / max) * H
+  const path = (s: number[]) => s.map((v, i) => `${i ? 'L' : 'M'}${xPct(i + 1).toFixed(2)},${y(v).toFixed(2)}`).join(' ')
+  const thisLine = path(thisSeries)
+  const thisArea = `${thisLine} L${xPct(elapsed).toFixed(2)},${H} L0,${H} Z`
+
+  const onMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const r = e.currentTarget.getBoundingClientRect()
+    const day = Math.round(((e.clientX - r.left) / r.width) * (N - 1)) + 1
+    setHover(Math.max(1, Math.min(N, day)))
+  }
+  const hThis = hover !== null && hover <= elapsed ? thisSeries[hover - 1] : null
+  const hLast = hover !== null && hasLast && hover <= lastSeries.length ? lastSeries[hover - 1] : null
+
+  return (
+    <div>
+      <p className="text-xs text-gray-600 leading-relaxed mb-3">
+        {!hasLast ? (
+          <>By day {elapsed} you&apos;ve spent <strong className="font-medium text-black">{fmt(thisNow)}</strong>. No spending last month to compare yet.</>
+        ) : same ? (
+          <>By day {elapsed} you&apos;ve spent <strong className="font-medium text-black">{fmt(thisNow)}</strong>, about the same as last month by this point.</>
+        ) : (
+          <>By day {elapsed} you&apos;ve spent <strong className="font-medium text-black">{fmt(thisNow)}</strong> — <strong className={`font-medium ${diff < 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmt(Math.abs(diff))} {diff < 0 ? 'less' : 'more'}</strong> than last month by this point.</>
+        )}
+      </p>
+
+      <div className="relative w-full" style={{ height: H }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+        <svg viewBox={`0 0 100 ${H}`} preserveAspectRatio="none" className="w-full overflow-visible" style={{ height: H }} aria-hidden="true">
+          <defs>
+            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#30a14e" stopOpacity="0.22" />
+              <stop offset="100%" stopColor="#30a14e" stopOpacity="0" />
+            </linearGradient>
+          </defs>
+          {[0.5, 1].map(f => (
+            <line key={f} x1="0" x2="100" y1={H * f} y2={H * f} stroke="#f0f1f3" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          ))}
+          {hasLast && (
+            <path d={path(lastSeries)} fill="none" stroke="#c4c7cc" strokeWidth={1.5} strokeDasharray="4 4"
+              vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+          )}
+          <path d={thisArea} fill={`url(#${gradId})`} stroke="none" />
+          <path d={thisLine} fill="none" stroke="#30a14e" strokeWidth={2} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
+          {hover !== null && (
+            <line x1={xPct(hover)} x2={xPct(hover)} y1="0" y2={H} stroke="#111110" strokeOpacity={0.15} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+          )}
+        </svg>
+
+        {/* Today / last point dot — HTML so it stays round on a stretched SVG */}
+        <span className="absolute w-2.5 h-2.5 rounded-full bg-[#30a14e] ring-2 ring-white -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+          style={{ left: `${xPct(elapsed)}%`, top: y(thisNow) }} />
+        {hover !== null && hThis !== null && hover !== elapsed && (
+          <span className="absolute w-2 h-2 rounded-full bg-[#30a14e] ring-2 ring-white -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+            style={{ left: `${xPct(hover)}%`, top: y(hThis) }} />
+        )}
+        {hover !== null && hLast !== null && (
+          <span className="absolute w-2 h-2 rounded-full bg-[#c4c7cc] ring-2 ring-white -translate-x-1/2 -translate-y-1/2 pointer-events-none"
+            style={{ left: `${xPct(hover)}%`, top: y(hLast) }} />
+        )}
+
+        {hover !== null && (hThis !== null || hLast !== null) && (
+          <div className="absolute -top-2 px-2 py-1 rounded-md bg-black text-white text-[11px] font-medium whitespace-nowrap pointer-events-none z-10"
+            style={{ left: `${Math.min(Math.max(xPct(hover), 18), 82)}%`, transform: 'translate(-50%, -100%)' }}>
+            Day {hover}
+            {hThis !== null && <> · this month {fmt(hThis)}</>}
+            {hLast !== null && <> · last month {fmt(hLast)}</>}
+          </div>
+        )}
+      </div>
+
+      <div className="flex items-center justify-center gap-4 mt-2.5">
+        <span className="flex items-center gap-1.5 text-[10px] text-gray-500">
+          <span className="w-3.5 h-[2px] rounded-full bg-[#30a14e]" /> This month
+        </span>
+        {hasLast && (
+          <span className="flex items-center gap-1.5 text-[10px] text-gray-500">
+            <span className="w-3.5 border-t-2 border-dashed border-[#c4c7cc]" /> Last month
+          </span>
+        )}
+      </div>
     </div>
   )
 }
