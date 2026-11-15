@@ -511,8 +511,14 @@ export function SmartInsightsContent(props: SmartInsightsProps) {
 
 // Beginner-view card version: green when every insight is good news, neutral otherwise
 // so a warning never sits on a "good news" background.
-export function SmartInsightsCard({ cardClass, ...props }: SmartInsightsProps & { cardClass: string }) {
-  const [open, setOpen] = useState(true)
+export function SmartInsightsCard({ cardClass, open: openProp, onOpenChange, ...props }: SmartInsightsProps & {
+  cardClass: string
+  open?: boolean                          // optional controlled mode (Beginner view: set from Settings)
+  onOpenChange?: (open: boolean) => void
+}) {
+  const [openLocal, setOpenLocal] = useState(true)
+  const open = openProp ?? openLocal
+  const toggle = () => { if (onOpenChange) onOpenChange(!open); else setOpenLocal(v => !v) }
   const insights = buildInsights(props)
   const allPositive = insights.length > 0 && insights.every(i => i.color === 'text-green-700')
   return (
@@ -529,7 +535,7 @@ export function SmartInsightsCard({ cardClass, ...props }: SmartInsightsProps & 
           <path d="M92 4 L106 3 L102 16" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
       )}
-      <button onClick={() => setOpen(v => !v)} aria-expanded={open}
+      <button onClick={toggle} aria-expanded={open}
         className="relative w-full flex items-center gap-2.5 px-4 pt-3 pb-2 text-left">
         <Lightbulb size={14} className="text-black shrink-0" />
         <p className="text-xs font-semibold text-black uppercase tracking-wider flex-1">Smart insights</p>
@@ -818,9 +824,10 @@ export function SpendingHeatmap({
 }
 
 // ─── Weekday averages — column-aligned under the heatmap ──────────────────────
-export function WeekdayBars({ stats, size = 'compact', withWeekColumn = false }: {
+export function WeekdayBars({ stats, size = 'compact', withWeekColumn = false, showCaption = true }: {
   stats: DowStat[]; size?: 'compact' | 'comfortable'
   withWeekColumn?: boolean   // match SpendingHeatmap showWeekTotals so columns stay aligned
+  showCaption?: boolean      // Beginner view moves the caption into its "How to read" panel
 }) {
   const [hover, setHover] = useState<number | null>(null)
   const compact = size === 'compact'
@@ -843,11 +850,12 @@ export function WeekdayBars({ stats, size = 'compact', withWeekColumn = false }:
             <div key={s.idx} className="h-full flex items-end justify-center"
               onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(h => h === i ? null : h)}>
               {s.occurrences === 0 ? (
-                <div className={compact ? 'w-3/5 rounded-full bg-gray-100' : 'w-full rounded-sm'} style={compact ? { height: 3 } : { height: 3, border: '1px dashed #eeeeec' }} />
+                <div className={compact ? 'w-1.5 rounded-full bg-gray-200' : 'w-full rounded-sm'} style={compact ? { height: 4 } : { height: 3, border: '1px dashed #eeeeec' }} />
               ) : (
-                <div className={`heat-bar ${compact ? 'w-3/5 rounded-full' : 'w-full rounded-t-sm'}`}
+                <div className={`heat-bar ${compact ? 'w-1.5 rounded-full' : 'w-full rounded-t-sm'}`}
                   style={{
-                    height: `${Math.max((s.avg / maxAvg) * 100, 3)}%`,
+                    // Slim bars in compact mode, never shorter than 4px so small days stay visible
+                    height: compact ? `max(4px, ${(s.avg / maxAvg) * 100}%)` : `${Math.max((s.avg / maxAvg) * 100, 3)}%`,
                     backgroundColor: heaviest && s.idx === heaviest.idx ? HEAT_COLORS[4] : HEAT_COLORS[1],
                   }} />
               )}
@@ -855,7 +863,7 @@ export function WeekdayBars({ stats, size = 'compact', withWeekColumn = false }:
           ))}
         </div>
       </div>
-      <p className="text-[10px] text-gray-300 text-center mt-1.5">Average spending by weekday</p>
+      {showCaption && <p className="text-[10px] text-gray-300 text-center mt-1.5">Average spending by weekday</p>}
     </div>
   )
 }
@@ -898,15 +906,24 @@ export function SpendingPaceChart({ thisSeries, lastSeries, daysInMonth }: {
 
   return (
     <div>
-      <p className="text-xs text-gray-600 leading-relaxed mb-3">
-        {!hasLast ? (
-          <>By day {elapsed} you&apos;ve spent <strong className="font-medium text-black">{fmt(thisNow)}</strong>. No spending last month to compare yet.</>
-        ) : same ? (
-          <>By day {elapsed} you&apos;ve spent <strong className="font-medium text-black">{fmt(thisNow)}</strong>, about the same as last month by this point.</>
-        ) : (
-          <>By day {elapsed} you&apos;ve spent <strong className="font-medium text-black">{fmt(thisNow)}</strong> — <strong className={`font-medium ${diff < 0 ? 'text-emerald-600' : 'text-red-600'}`}>{fmt(Math.abs(diff))} {diff < 0 ? 'less' : 'more'}</strong> than last month by this point.</>
-        )}
-      </p>
+      {/* Two-line summary: what you spent so far, then how that compares */}
+      <div className="flex items-end justify-between gap-3 mb-4">
+        <div className="min-w-0">
+          <p className="text-[11px] text-gray-500">Spent in the first {elapsed} {elapsed === 1 ? 'day' : 'days'}</p>
+          <p className="text-xl font-semibold text-black tabular-nums tracking-tight leading-tight">{fmt(thisNow)}</p>
+        </div>
+        <span className={`shrink-0 text-xs font-medium rounded-full px-2.5 py-1 tabular-nums ${
+          !hasLast || same ? 'bg-gray-100 text-gray-600' : diff < 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-red-50 text-red-600'}`}>
+          {!hasLast ? 'Nothing to compare yet'
+            : same ? 'Same as last month'
+            : `${diff < 0 ? '↓' : '↑'} ${fmt(Math.abs(diff))} ${diff < 0 ? 'less' : 'more'}`}
+        </span>
+      </div>
+      {hasLast && !same && (
+        <p className="text-xs text-gray-500 -mt-2.5 mb-4">
+          {diff < 0 ? 'Less' : 'More'} than you had spent by day {elapsed} last month.
+        </p>
+      )}
 
       <div className="relative w-full" style={{ height: H }} onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
         <svg viewBox={`0 0 100 ${H}`} preserveAspectRatio="none" className="w-full overflow-visible" style={{ height: H }} aria-hidden="true">

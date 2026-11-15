@@ -12,7 +12,7 @@ import {
   User, Home, Zap, Menu, ChevronLeft, ChevronRight, History, CreditCard,
   MoreVertical, Undo2, Download, SlidersHorizontal, Tv, Eye, EyeOff, Calculator,
   Users, UserPlus, Settings, Bell, LayoutGrid, Lock, LockOpen, CalendarDays,
-  BarChart3, PieChart, ShieldCheck, Gauge, Copy, HandCoins, Sun, Moon, ArrowDown, ArrowUp, FileText, Tag
+  BarChart3, PieChart, ShieldCheck, Gauge, Copy, HandCoins, Sun, Moon, HelpCircle, ArrowDown, ArrowUp, FileText, Tag
 } from 'lucide-react'
 
 import {
@@ -578,8 +578,14 @@ function BatchExpenseEditor({ onClose, onSave, pools, pastExpenses, poolEntries,
     try {
       const raw = localStorage.getItem(BATCH_DRAFT_KEY)
       const parsed = raw ? JSON.parse(raw) : null
-      if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(r => r && typeof r.id === 'string' && typeof r.date === 'string'))
-        return parsed as BatchRow[]
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(r => r && typeof r.id === 'string' && typeof r.date === 'string')) {
+        // A linked budget decides the category; drop links to budgets that no longer exist
+        return (parsed as BatchRow[]).map(r => {
+          if (!r.poolId) return r
+          const pool = pools.find(p => p.id === r.poolId)
+          return pool ? { ...r, category: pool.category } : { ...r, poolId: '' }
+        })
+      }
     } catch { /* storage unavailable — start fresh */ }
     return [emptyRow(today), emptyRow(today), emptyRow(today)]
   })
@@ -659,9 +665,17 @@ function BatchExpenseEditor({ onClose, onSave, pools, pastExpenses, poolEntries,
     setRows(next)
     if (target) { setActiveId(target.id); setFocusId(target.id) }
   }
+  // A linked budget always decides the category, so the two can never disagree.
+  const poolCategory = (poolId: string) => pools.find(p => p.id === poolId)?.category
   const onTitle = (row: BatchRow, value: string) => {
     const hit = suggestions.get(value.trim().toLowerCase())
-    update(row.id, hit ? { title: value, category: hit.category, poolId: row.poolId || hit.poolId } : { title: value })
+    if (!hit || row.poolId) { update(row.id, { title: value }); return }   // already linked: keep its category
+    const fromPool = hit.poolId ? poolCategory(hit.poolId) : undefined
+    update(row.id, { title: value, poolId: hit.poolId, category: fromPool ?? hit.category })
+  }
+  const onBudget = (row: BatchRow, poolId: string) => {
+    const cat = poolId ? poolCategory(poolId) : undefined
+    update(row.id, cat ? { poolId, category: cat } : { poolId })          // "No budget" keeps the current category
   }
   const clearAll = () => { const fresh = [emptyRow(today), emptyRow(today), emptyRow(today)]; setRows(fresh); setActiveId(fresh[0].id); setShowErrors(false); setError(null) }
 
@@ -798,16 +812,24 @@ function BatchExpenseEditor({ onClose, onSave, pools, pastExpenses, poolEntries,
                         onClick={openPicker} onChange={e => e.target.value && update(r.id, { date: e.target.value })}
                         className="absolute inset-0 opacity-0 cursor-pointer w-full" />
                     </label>
-                    {/* Category pill */}
-                    <label className={`relative inline-flex items-center gap-1 h-7 pl-2.5 pr-2 rounded-full text-[11px] font-medium cursor-pointer ${cfg.bg} ${cfg.text}`}>
-                      {CATEGORY_CONFIG[r.category].label.split(' ')[0]}
-                      <ChevronDown size={11} className="opacity-60" />
-                      <select value={r.category} aria-label={`Row ${idx + 1} category`}
-                        onChange={e => update(r.id, { category: e.target.value as Category })}
-                        className="absolute inset-0 opacity-0 cursor-pointer w-full">
-                        {(Object.keys(CATEGORY_CONFIG) as Category[]).map(c => <option key={c} value={c}>{CATEGORY_CONFIG[c].label}</option>)}
-                      </select>
-                    </label>
+                    {/* Category pill — locked while a budget is linked (the budget decides it) */}
+                    {linked ? (
+                      <span title={`Set by the ${linked.title} budget`} aria-label={`Category ${CATEGORY_CONFIG[r.category].label}, set by the ${linked.title} budget`}
+                        className={`inline-flex items-center gap-1 h-7 pl-2.5 pr-2 rounded-full text-[11px] font-medium cursor-default ${cfg.bg} ${cfg.text}`}>
+                        {CATEGORY_CONFIG[r.category].label.split(' ')[0]}
+                        <Lock size={9} className="opacity-60" />
+                      </span>
+                    ) : (
+                      <label className={`relative inline-flex items-center gap-1 h-7 pl-2.5 pr-2 rounded-full text-[11px] font-medium cursor-pointer ${cfg.bg} ${cfg.text}`}>
+                        {CATEGORY_CONFIG[r.category].label.split(' ')[0]}
+                        <ChevronDown size={11} className="opacity-60" />
+                        <select value={r.category} aria-label={`Row ${idx + 1} category`}
+                          onChange={e => update(r.id, { category: e.target.value as Category })}
+                          className="absolute inset-0 opacity-0 cursor-pointer w-full">
+                          {(Object.keys(CATEGORY_CONFIG) as Category[]).map(c => <option key={c} value={c}>{CATEGORY_CONFIG[c].label}</option>)}
+                        </select>
+                      </label>
+                    )}
                     {/* Budget pill */}
                     {pools.length > 0 && (
                       <label className={`relative inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-medium cursor-pointer max-w-[170px] transition-colors ${
@@ -815,7 +837,7 @@ function BatchExpenseEditor({ onClose, onSave, pools, pastExpenses, poolEntries,
                         {linked ? <Lock size={10} className="shrink-0" /> : <Plus size={11} className="shrink-0" />}
                         <span className="truncate">{linked ? linked.title : 'Budget'}</span>
                         <select value={r.poolId} aria-label={`Row ${idx + 1} budget`}
-                          onChange={e => update(r.id, { poolId: e.target.value })}
+                          onChange={e => onBudget(r, e.target.value)}
                           className="absolute inset-0 opacity-0 cursor-pointer w-full">
                           <option value="">No budget</option>
                           {suggested.map(p => <option key={p.id} value={p.id}>{p.title} (suggested)</option>)}
@@ -3115,14 +3137,26 @@ function BudgetSimulatorModal({
 }
 
 
-function SettingsModal({ value, onChange, theme, onThemeChange, onClose }: {
+// Which dashboard cards start open. Saved per browser (localStorage 'ef_open_defaults').
+type OpenDefaults = { daily: boolean; reserved: boolean; trend: boolean; category: boolean; insights: boolean }
+const OPEN_DEFAULTS: OpenDefaults = { daily: false, reserved: false, trend: false, category: false, insights: true }
+const OPEN_DEFAULT_ITEMS: { key: keyof OpenDefaults; label: string }[] = [
+  { key: 'daily',    label: 'Daily spending' },
+  { key: 'reserved', label: 'Reserved money' },
+  { key: 'trend',    label: 'Last 6 months' },
+  { key: 'category', label: 'By category' },
+  { key: 'insights', label: 'Smart insights' },
+]
+
+function SettingsModal({ value, onChange, theme, onThemeChange, openDefaults, onOpenDefaultsChange, onClose }: {
   value: 'beginner' | 'expert'; onChange: (v: 'beginner' | 'expert') => void
   theme: 'light' | 'dark'; onThemeChange: (v: 'light' | 'dark') => void
+  openDefaults: OpenDefaults; onOpenDefaultsChange: (key: keyof OpenDefaults, value: boolean) => void
   onClose: () => void
 }) {
   return (
     <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0" onClick={onClose}>
-      <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-xl animate-slide-up" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-xl animate-slide-up max-h-[88vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold text-black flex items-center gap-2"><Settings size={16} /> Settings</h3>
           <button onClick={onClose} className="text-gray-400 hover:text-black"><X size={18} /></button>
@@ -3166,6 +3200,26 @@ function SettingsModal({ value, onChange, theme, onThemeChange, onClose }: {
             </button>
           ))}
         </div>
+        <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mt-5 mb-1">Open when the dashboard loads</p>
+        <p className="text-[11px] text-gray-400 mb-2">Turn on the sections you want open by default.</p>
+        <div className="rounded-xl border border-gray-200 divide-y divide-gray-100">
+          {OPEN_DEFAULT_ITEMS.map(item => {
+            const on = openDefaults[item.key]
+            return (
+              <button key={item.key} type="button" role="switch" aria-checked={on}
+                onClick={() => onOpenDefaultsChange(item.key, !on)}
+                className="w-full flex items-center justify-between gap-3 px-3 py-2.5 text-left hover:bg-gray-50 transition-colors first:rounded-t-xl last:rounded-b-xl">
+                <span className="text-sm text-black">{item.label}</span>
+                <span className="flex items-center gap-2 shrink-0">
+                  <span className="text-[11px] text-gray-400">{on ? 'Open' : 'Closed'}</span>
+                  <span className={`relative w-9 h-5 rounded-full transition-colors ${on ? 'bg-black' : 'bg-gray-200'}`}>
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : ''}`} />
+                  </span>
+                </span>
+              </button>
+            )
+          })}
+        </div>
         <button onClick={onClose} className="w-full mt-4 bg-black text-white text-sm font-medium py-2.5 rounded-xl hover:bg-gray-800 transition-all">Done</button>
       </div>
     </div>
@@ -3193,6 +3247,7 @@ export default function Dashboard() {
   const [fullName, setFullName]               = useState('')
   const [showTotalBalance, setShowTotalBalance]     = useState(false)
   const [showMonthlyBalance, setShowMonthlyBalance] = useState(false)
+  const [showIncome, setShowIncome]                 = useState(false)   // income is sensitive: hidden by default, like the balances
   const [loading, setLoading]                 = useState(true)
   const [searchQuery, setSearchQuery]         = useState('')
   const [showSearch, setShowSearch]           = useState(false)
@@ -3226,6 +3281,7 @@ export default function Dashboard() {
   const [trendOpen, setTrendOpen]             = useState(false)   // Last 6 months card, collapsed by default
   const [catOpen, setCatOpen]                 = useState(false)   // By category card, collapsed by default
   const [showDailyPatterns, setShowDailyPatterns] = useState(false)
+  const [calHelpOpen, setCalHelpOpen] = useState(false)   // calendar "How to read" panel
   const [splitBills, setSplitBills]           = useState<SplitBill[]>([])
   const [billParticipants, setBillParticipants] = useState<SplitBillParticipant[]>([])
   const [showAddSplitBill, setShowAddSplitBill] = useState(false)
@@ -3278,6 +3334,33 @@ export default function Dashboard() {
     return () => root.classList.remove('ef-dark')
   }, [theme])
   const changeTheme = (v: 'light' | 'dark') => { try { localStorage.setItem('ef_theme', v) } catch { /* ignore */ } setTheme(v) }
+
+  // ── Which sections start open (Settings → Open when the dashboard loads) ──
+  const [openDefaults, setOpenDefaults] = useState<OpenDefaults>(OPEN_DEFAULTS)
+  const [insightsOpen, setInsightsOpen] = useState(OPEN_DEFAULTS.insights)
+  const applyOpen = (d: OpenDefaults) => {
+    setDailyOpen(d.daily); setReservedOpen(d.reserved); setTrendOpen(d.trend); setCatOpen(d.category); setInsightsOpen(d.insights)
+  }
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('ef_open_defaults')
+      if (!raw) return
+      const saved = { ...OPEN_DEFAULTS, ...JSON.parse(raw) } as OpenDefaults
+      setOpenDefaults(saved); applyOpen(saved)
+    } catch { /* ignore bad or missing data */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  // Changing a default also opens/closes that section right away, so the effect is visible
+  const changeOpenDefault = (key: keyof OpenDefaults, value: boolean) => {
+    const next = { ...openDefaults, [key]: value }
+    setOpenDefaults(next)
+    try { localStorage.setItem('ef_open_defaults', JSON.stringify(next)) } catch { /* ignore */ }
+    if (key === 'daily') setDailyOpen(value)
+    else if (key === 'reserved') setReservedOpen(value)
+    else if (key === 'trend') setTrendOpen(value)
+    else if (key === 'category') setCatOpen(value)
+    else setInsightsOpen(value)
+  }
 
   const init = async () => {
     const { data: userData } = await supabase.auth.getUser()
@@ -3358,7 +3441,8 @@ export default function Dashboard() {
     if (!user) return { ok: false, message: 'You are signed out. Please log in again.' }
     const poolTitle = (id: string) => expensePools.find(p => p.id === id)?.title
     const { data: inserted, error } = await supabase.from('expenses').insert(items.map(it => ({
-      title: it.title, amount: it.amount, category: it.category,
+      // Safety net: a budget-linked expense always takes the budget's category
+      title: it.title, amount: it.amount, category: (it.poolId && expensePools.find(p => p.id === it.poolId)?.category) || it.category,
       note: it.poolId && poolTitle(it.poolId) ? `Pool: ${poolTitle(it.poolId)}` : '',
       user_id: user.id, created_at: dateWithCurrentTime(it.date),
     }))).select()
@@ -4296,6 +4380,7 @@ export default function Dashboard() {
             {[
               {
                 label: 'Income',
+                hideable: true,
                 value: fmtShort(thisMonthIncomeTot),
                 sub: `${thisMonthIncome.length} entr${thisMonthIncome.length === 1 ? 'y' : 'ies'}`,
                 color: 'text-green-700',
@@ -4356,7 +4441,9 @@ export default function Dashboard() {
                 sparkColor: '#f97316',
               },
             ].map((s, i) => {
-              const showSpark = s.spark.length >= 2 && s.spark.some(v => v !== 0)
+              const hidden = 'hideable' in s && s.hideable && !showIncome
+              // A hidden amount also hides its trend line, which would reveal the shape of the numbers
+              const showSpark = !hidden && s.spark.length >= 2 && s.spark.some(v => v !== 0)
               return (
                 <div key={i} className={`stat-card ${CARD} relative overflow-hidden p-3.5`}>
                   {showSpark && (
@@ -4367,9 +4454,17 @@ export default function Dashboard() {
                   <div className="relative z-10">
                     <div className="flex items-center gap-2">
                       <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${s.iconBg}`}>{s.icon}</span>
-                      <p className="text-xs text-gray-500 truncate">{s.label}</p>
+                      <p className="text-xs text-gray-500 truncate flex-1">{s.label}</p>
+                      {'hideable' in s && s.hideable && (
+                        <button onClick={() => setShowIncome(v => !v)} title={showIncome ? 'Hide' : 'Show'} aria-label={showIncome ? 'Hide income' : 'Show income'}
+                          className="text-gray-400 hover:text-gray-700 transition-colors shrink-0 -mr-0.5">
+                          {showIncome ? <EyeOff size={14} /> : <Eye size={14} />}
+                        </button>
+                      )}
                     </div>
-                    <p className="text-base sm:text-lg font-medium text-black mt-2 tracking-tight truncate">{s.value}</p>
+                    <p className="text-base sm:text-lg font-medium text-black mt-2 tracking-tight truncate">
+                      {hidden ? <span className="tracking-widest text-gray-300 select-none">••••••</span> : s.value}
+                    </p>
                     <p className={`text-[11px] mt-1 flex items-center gap-1 ${s.color}`}>
                       {s.subIcon && <span className="shrink-0 flex items-center">{s.subIcon}</span>}
                       <span className="truncate">{s.sub}</span>
@@ -4416,32 +4511,64 @@ export default function Dashboard() {
                   </div>
                 ))}
               </div>
-              {dailyRecords.heaviestDow && dailyRecords.heaviestDow.avg > 0 && (
-                <p className="text-xs text-gray-500 mt-2.5">
-                  <strong className="font-medium text-black">{dailyRecords.heaviestDow.label}s</strong> are your heaviest — {fmt(Math.round(dailyRecords.heaviestDow.avg))} on average.
+              <div className="flex items-center justify-between gap-3 mt-2.5">
+                <p className="text-xs text-gray-500 min-w-0">
+                  {dailyRecords.heaviestDow && dailyRecords.heaviestDow.avg > 0 && (<>
+                    <strong className="font-medium text-black">{dailyRecords.heaviestDow.label}s</strong> are your heaviest — {fmt(Math.round(dailyRecords.heaviestDow.avg))} on average.
+                  </>)}
                 </p>
-              )}
+                {/* Explanations live behind this button so the calendar stays clean */}
+                <button onClick={() => setCalHelpOpen(v => !v)} aria-expanded={calHelpOpen}
+                  aria-label="How to read the calendar" className={`shrink-0 flex items-center justify-center gap-1 h-7 w-7 sm:w-auto sm:pl-1.5 sm:pr-2.5 rounded-full border text-[11px] font-medium transition-all ${
+                    calHelpOpen ? 'bg-black text-white border-black' : 'bg-white text-gray-600 border-gray-200 hover:border-gray-400 hover:text-black'}`}>
+                  <HelpCircle size={14} /><span className="hidden sm:inline">How to read</span>
+                </button>
+              </div>
+
+              {calHelpOpen && (() => {
+                const sq = 'w-3.5 h-3.5 rounded-[4px] shrink-0'
+                const items: { visual: React.ReactNode; label: string }[] = [
+                  { visual: <span className="flex gap-[2px]">{HEAT_COLORS.slice(1).map((c, i) => <span key={i} className="w-2 h-3.5 rounded-[2px]" style={{ backgroundColor: c }} />)}</span>, label: 'Darker = spent more' },
+                  { visual: <span className={sq} style={{ backgroundColor: HEAT_COLORS[0] }} />, label: 'No spending' },
+                  { visual: <span className={sq} style={{ background: 'var(--heat-future)', border: '1px solid var(--ef-line)' }} />, label: 'Day not here yet' },
+                  { visual: <span className={sq} style={{ backgroundColor: HEAT_COLORS[2], boxShadow: '0 0 0 1.5px var(--ef-surface), 0 0 0 2.5px var(--ef-ink)' }} />, label: 'Today' },
+                  { visual: <span className="text-[10px] font-semibold text-gray-500 tabular-nums leading-none">Rp</span>, label: 'Week total' },
+                  { visual: <span className="flex items-end gap-[3px] h-3.5">{[6, 10, 14].map((h, i) => <span key={i} className="w-1 rounded-full" style={{ height: h, backgroundColor: i === 2 ? HEAT_COLORS[4] : HEAT_COLORS[1] }} />)}</span>, label: 'Weekday average' },
+                ]
+                return (
+                  <div className="animate-slide-up mt-3 rounded-2xl bg-gray-50 px-4 py-3.5">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4 gap-y-2.5 sm:gap-y-3">
+                      {items.map(h => (
+                        <div key={h.label} className="flex items-center gap-2.5 min-w-0">
+                          <span className="w-10 h-4 flex items-center shrink-0">{h.visual}</span>
+                          <span className="text-xs text-gray-700 whitespace-nowrap truncate">{h.label}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-3.5 pt-3 border-t border-gray-200/70">Tap any day to see what you spent.</p>
+                  </div>
+                )
+              })()}
 
               <div className="mt-4">
-                <SpendingHeatmap data={dailySpend} monthKey={selectedMonth} size="compact" onSelectDay={setOpenDay} showWeekTotals />
-                <WeekdayBars stats={dowStats} size="compact" withWeekColumn />
-                <p className="text-[10px] text-gray-300 text-center mt-1">Tap any day to see what you spent</p>
+                <SpendingHeatmap data={dailySpend} monthKey={selectedMonth} size="compact" onSelectDay={setOpenDay} showWeekTotals showLegend={false} />
+                <WeekdayBars stats={dowStats} size="compact" withWeekColumn showCaption={false} />
               </div>
 
-              {/* Spending pace vs last month */}
-              <div className="mt-4 pt-4 border-t border-gray-100">
-                <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-2">Spending pace</p>
+              {/* Spending pace + patterns — one collapsible section (closed by default) */}
+              <div className="mt-4 pt-3 border-t border-gray-100">
+                <button onClick={() => setShowDailyPatterns(v => !v)} aria-expanded={showDailyPatterns}
+                  className="w-full flex items-center justify-between gap-2 py-1 text-left group">
+                  <span className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider group-hover:text-black transition-colors">Spending pace &amp; patterns</span>
+                  <ChevronDown size={14} className={`text-gray-400 group-hover:text-black transition-transform duration-300 ${showDailyPatterns ? 'rotate-180' : ''}`} />
+                </button>
+                {showDailyPatterns && (<div className="animate-slide-up mt-3">
                 <SpendingPaceChart thisSeries={spendingPace.thisSeries} lastSeries={spendingPace.lastSeries} daysInMonth={dailySpend.daysInMonth} />
-              </div>
 
               {dailySpend.spentDayCount > 0 && (<>
-                <button onClick={() => setShowDailyPatterns(v => !v)}
-                  className="w-full flex items-center justify-center gap-1 mt-4 pt-3 border-t border-gray-100 text-[11px] font-medium text-gray-400 hover:text-black transition-colors">
-                  {showDailyPatterns ? 'Hide patterns' : 'Show patterns'}
-                  <ChevronDown size={12} className={`transition-transform duration-300 ${showDailyPatterns ? 'rotate-180' : ''}`} />
-                </button>
-                <div style={{ maxHeight: showDailyPatterns ? '600px' : '0px', opacity: showDailyPatterns ? 1 : 0, transition: 'max-height 0.35s ease, opacity 0.25s ease', overflow: 'hidden' }}>
-                  <div className="grid grid-cols-2 gap-2 pt-3">
+                <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mt-5">Patterns</p>
+                <div>
+                  <div className="grid grid-cols-2 gap-2 pt-2.5">
                     {[
                       { label: 'Quietest day', value: dailyRecords.quietest ? fmt(dailyRecords.quietest.total) : '—',
                         sub: dailyRecords.quietest ? `${MONTHS_SHORT[Number(selectedMonth.split('-')[1]) - 1]} ${dailyRecords.quietest.day}` : 'no spending yet',
@@ -4477,6 +4604,8 @@ export default function Dashboard() {
                   </div>
                 </div>
               </>)}
+                </div>)}
+              </div>
             </>)}
             </div>)}
           </div>
@@ -4493,7 +4622,7 @@ export default function Dashboard() {
               const days = Math.round((d.getTime() - todayStart.getTime()) / 86_400_000)
               if (days === 0) return { text: 'Due today', cls: 'text-amber-600' }
               if (days <= 3) return { text: `Due in ${days}d`, cls: 'text-amber-600' }
-              return { text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), cls: 'text-gray-400' }
+              return { text: `Due ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, cls: 'text-gray-400' }
             }
             return (
           <div className={`${CARD} px-4 py-3 mb-3`}>
@@ -4506,7 +4635,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-3 shrink-0 min-w-0">
                 {!reservedOpen && (
                   <>
-                    <span className="text-xs font-medium text-black truncate">{fmt(reserved.total)} set aside</span>
+                    <span className="text-xs font-medium text-black truncate">{fmt(reserved.total)} kept aside</span>
                     <span aria-hidden="true" className="hidden sm:inline-block w-px h-4 bg-gray-200" />
                     <span className={`hidden sm:inline text-[11px] font-medium ${short ? 'text-red-600' : 'text-emerald-600'}`}>
                       {fmt(Math.abs(freeToSpend))} {short ? 'short' : 'free'}
@@ -4521,24 +4650,24 @@ export default function Dashboard() {
               {/* 1. The answer, first and big */}
               <div className={`rounded-2xl px-4 py-4 ${short ? 'bg-red-50' : 'bg-emerald-50'}`}>
                 <p className={`text-[11px] font-medium ${short ? 'text-red-700' : 'text-emerald-700'}`}>
-                  {short ? 'You are short this month' : 'Free to spend this month'}
+                  {short ? 'You need more money' : 'You can still spend'}
                 </p>
                 <p className={`text-2xl font-semibold tracking-tight tabular-nums mt-0.5 ${short ? 'text-red-700' : 'text-emerald-800'}`}>
                   {fmt(Math.abs(freeToSpend))}
                 </p>
                 <p className={`text-xs mt-1.5 leading-relaxed ${short ? 'text-red-700/80' : 'text-emerald-800/80'}`}>
                   {short
-                    ? 'Your planned budgets and bills cost more than the money you have left. Turn off a budget below that can wait.'
-                    : <>That&apos;s about <strong className="font-semibold">{fmt(Math.round(safeToSpendPerDay.perDay))} a day</strong> for the next {safeToSpendPerDay.daysLeft} {safeToSpendPerDay.daysLeft === 1 ? 'day' : 'days'}, after setting money aside for your budgets and bills.</>}
+                    ? 'Your budgets and bills cost more than what you have left. Turn off a budget you can skip.'
+                    : <>About <strong className="font-semibold">{fmt(Math.round(safeToSpendPerDay.perDay))} a day</strong> for the next {safeToSpendPerDay.daysLeft} {safeToSpendPerDay.daysLeft === 1 ? 'day' : 'days'}.</>}
                 </p>
               </div>
 
               {/* 2. How we got there — a simple receipt */}
               <div className="mt-4 rounded-2xl border border-gray-100 px-4 py-1">
                 {[
-                  { label: 'Money left this month', hint: 'income minus what you already spent', value: netSavings, sign: '' },
-                  { label: 'Set aside for budgets', hint: `${reserved.poolCount} ${reserved.poolCount === 1 ? 'budget' : 'budgets'} not fully used yet`, value: reserved.pools, sign: '−' },
-                  { label: 'Bills still to pay', hint: `${reserved.billCount} ${reserved.billCount === 1 ? 'bill' : 'bills'} due this month`, value: reserved.bills, sign: '−' },
+                  { label: 'Money left', hint: 'Income minus spending so far', value: netSavings, sign: '' },
+                  { label: 'Kept for budgets', hint: `${reserved.poolCount} ${reserved.poolCount === 1 ? 'budget' : 'budgets'}`, value: reserved.pools, sign: '−' },
+                  { label: 'Bills to pay', hint: `${reserved.billCount} ${reserved.billCount === 1 ? 'bill' : 'bills'} this month`, value: reserved.bills, sign: '−' },
                 ].map(row => (
                   <div key={row.label} className="flex items-center justify-between gap-3 py-2.5 border-b border-gray-100">
                     <div className="min-w-0">
@@ -4552,7 +4681,7 @@ export default function Dashboard() {
                   </div>
                 ))}
                 <div className="flex items-center justify-between gap-3 py-3">
-                  <p className="text-sm font-semibold text-black">{short ? 'Short by' : 'Free to spend'}</p>
+                  <p className="text-sm font-semibold text-black">{short ? 'Not enough by' : 'You can spend'}</p>
                   <p className={`text-sm font-semibold tabular-nums ${short ? 'text-red-600' : 'text-emerald-600'}`}>{fmt(Math.abs(freeToSpend))}</p>
                 </div>
               </div>
@@ -4560,10 +4689,10 @@ export default function Dashboard() {
               {/* 3. Budgets — choose what to set aside */}
               {reserved.poolItems.length > 0 && (
                 <div className="mt-5">
-                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Your budgets</p>
-                  <p className="text-[11px] text-gray-500 mt-0.5 mb-2">
-                    Switch <strong className="font-medium text-gray-700">on</strong> to keep the rest of a budget aside. Switch <strong className="font-medium text-gray-700">off</strong> if it can wait — its money counts as free.
-                  </p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-sm font-semibold text-black">Your budgets</p>
+                    <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 rounded-full px-1.5 py-0.5">{reserved.poolItems.length}</span>
+                  </div>
                   <div className="flex flex-col divide-y divide-gray-100">
                     {reserved.poolItems.map(({ pool, spent: used, left, on }) => {
                       const cfg = CATEGORY_CONFIG[pool.category]
@@ -4574,14 +4703,14 @@ export default function Dashboard() {
                           <div className="flex-1 min-w-0">
                             <p className={`text-sm truncate ${on ? 'text-gray-900' : 'text-gray-500'}`}>{pool.title}</p>
                             <p className={`text-[11px] truncate ${over ? 'text-red-500' : 'text-gray-400'}`}>
-                              {over ? `Over budget by ${fmt(used - pool.budget_amount)}`
-                                : left === 0 ? 'Fully used — nothing to set aside'
-                                : on ? `${fmt(left)} set aside`
-                                : `Not set aside · ${fmt(left)} counted as free`}
+                              {over ? `Over by ${fmt(used - pool.budget_amount)}`
+                                : left === 0 ? 'All used'
+                                : on ? `${fmt(left)} kept`
+                                : `Skipped · ${fmt(left)} free to use`}
                             </p>
                           </div>
-                          <button role="switch" aria-checked={on} aria-label={`Set aside money for ${pool.title}`}
-                            title={on ? 'Set aside — tap to stop' : 'Not set aside — tap to set aside'}
+                          <button role="switch" aria-checked={on} aria-label={`Keep money for ${pool.title}`}
+                            title={on ? 'Kept — tap to skip' : 'Skipped — tap to keep'}
                             onClick={() => handleTogglePoolReserved(pool.id, !on)}
                             className={`relative w-9 h-5 rounded-full shrink-0 transition-colors ${on ? 'bg-black' : 'bg-gray-200'}`}>
                             <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : ''}`} />
@@ -4596,7 +4725,10 @@ export default function Dashboard() {
               {/* 4. Bills still to pay */}
               {reserved.billItems.length > 0 && (
                 <div className="mt-5">
-                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Bills still to pay</p>
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-sm font-semibold text-black">Bills to pay</p>
+                    <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 rounded-full px-1.5 py-0.5">{reserved.billItems.length}</span>
+                  </div>
                   <div className="flex flex-col divide-y divide-gray-100">
                     {reserved.billItems.map(({ bill, times, amount, firstDue, overdue }) => {
                       const cfg = CATEGORY_CONFIG[bill.category]
@@ -4608,7 +4740,7 @@ export default function Dashboard() {
                           <div className="flex-1 min-w-0">
                             <p className="text-sm text-gray-900 truncate">
                               {bill.title}
-                              {times > 1 && <span className="ml-1.5 text-[10px] text-gray-400 font-medium">{times}x this month</span>}
+                              {times > 1 && <span className="ml-1.5 text-[10px] text-gray-400 font-medium">{times}x</span>}
                             </p>
                             <p className={`text-[11px] ${due.cls}`}>{due.text} · {fmt(amount)}</p>
                           </div>
@@ -4626,7 +4758,7 @@ export default function Dashboard() {
               <div className="mt-4 rounded-xl bg-gray-50 px-3 py-2.5 flex items-start gap-2">
                 <Lightbulb size={13} className="text-gray-400 shrink-0 mt-0.5" />
                 <p className="text-[11px] text-gray-500 leading-relaxed">
-                  When you spend from a budget, use <strong className="font-medium text-gray-700">+ Log</strong> on the Budgets tab. That moves the money from &quot;set aside&quot; to &quot;spent&quot;, so it is never counted twice.
+                  Spent from a budget? Tap <strong className="font-medium text-gray-700">+ Log</strong>{' '}on the Budgets tab so it&apos;s only counted once.
                 </p>
               </div>
             </div>)}
@@ -4645,11 +4777,6 @@ export default function Dashboard() {
                   <span className="text-xs font-semibold text-black uppercase tracking-wider truncate">Last 6 months</span>
                 </span>
                 <span className="flex items-center gap-2 shrink-0">
-                  {!trendOpen && (
-                    <span className="text-[11px] text-gray-500 tabular-nums">
-                      {MONTHS_SHORT[Number(selectedMonth.split('-')[1]) - 1]} {fmtShort(thisMonthTotal)}
-                    </span>
-                  )}
                   <ChevronRight size={14} className={`text-black transition-transform duration-300 ${trendOpen ? 'rotate-90' : 'rotate-0'}`} />
                 </span>
               </button>
@@ -4713,15 +4840,6 @@ export default function Dashboard() {
                   <span className="text-xs font-semibold text-black uppercase tracking-wider truncate">By category</span>
                 </span>
                 <span className="flex items-center gap-2 shrink-0 min-w-0">
-                  {!catOpen && thisMonthTotal > 0 && (() => {
-                    const top = (Object.keys(categoryTotals) as Category[]).sort((a, b) => (categoryTotals[b] || 0) - (categoryTotals[a] || 0))[0]
-                    return top ? (
-                      <span className="flex items-center gap-1.5 text-[11px] text-gray-500 truncate">
-                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: CATEGORY_COLOR[top] }} />
-                        {CATEGORY_CONFIG[top].label.split(' ')[0]} {(((categoryTotals[top] || 0) / thisMonthTotal) * 100).toFixed(0)}%
-                      </span>
-                    ) : null
-                  })()}
                   <ChevronRight size={14} className={`text-black transition-transform duration-300 ${catOpen ? 'rotate-90' : 'rotate-0'}`} />
                 </span>
               </button>
@@ -4792,7 +4910,8 @@ export default function Dashboard() {
           {/* Smart Insights */}
           <SmartInsightsCard cardClass={CARD} thisMonthTotal={thisMonthTotal} lastMonthTotal={lastMonthTotal} avgPerDay={avgPerDay}
             categoryTotals={categoryTotals} thisMonthIncomeTot={thisMonthIncomeTot} netSavings={netSavings} budgets={budgets} budgetSpend={budgetSpend}
-            freeToSpend={reserved.active ? freeToSpend : undefined} />
+            freeToSpend={reserved.active ? freeToSpend : undefined}
+            open={insightsOpen} onOpenChange={setInsightsOpen} />
 
           {/* Budget Tracker */}
           {budgets.length > 0 && (
@@ -5385,7 +5504,8 @@ export default function Dashboard() {
       </div>
       )}
 
-      {showSettings && <SettingsModal value={viewMode} onChange={changeView} theme={theme} onThemeChange={changeTheme} onClose={() => setShowSettings(false)} />}
+      {showSettings && <SettingsModal value={viewMode} onChange={changeView} theme={theme} onThemeChange={changeTheme}
+        openDefaults={openDefaults} onOpenDefaultsChange={changeOpenDefault} onClose={() => setShowSettings(false)} />}
 
       {/* Modals */}
       {showAddExpense  && <AddExpenseModal  onClose={() => setShowAddExpense(false)}  onSave={handleAddExpense}
