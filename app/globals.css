@@ -29,7 +29,7 @@ body {
    Light values are the defaults. Dark mode is applied by adding the
    `ef-dark` class to <html> (dashboard only, toggled in Settings → Appearance). */
 :root {
-  --ef-page: #fafafa;
+  --ef-page: #f4f5f7;
   --ef-surface: #ffffff;
   --ef-ink: #111110;
   --ef-line: #eceef0;
@@ -223,6 +223,53 @@ html.ef-dark {
 html.ef-dark .ef-keep {
   --color-white: #ffffff;
   --color-black: #000000;
+}
+
+/* ─── Light mode polish ─────────────────────────────────────────────────────
+   Gives light mode the depth dark mode has. Scoped to :not(.ef-dark), so
+   dark mode is untouched. */
+
+/* Soft canvas: neutral cool light gray (no warm/yellow tint), so white cards float */
+html:not(.ef-dark) .ef-canvas {
+  background-color: #f4f5f7;
+}
+
+/* Crisper cards: hairline edge, contact + soft drop shadow, faint top highlight */
+html:not(.ef-dark) .ef-card {
+  border-color: #e6e8eb;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    0 1px 2px rgb(16 24 40 / 0.05),
+    0 10px 28px -14px rgb(16 24 40 / 0.14);
+}
+/* Collapsible section rows feel tappable */
+html:not(.ef-dark) .ef-card:has(> button[aria-expanded]) { transition: border-color .2s ease, box-shadow .2s ease; }
+html:not(.ef-dark) .ef-card:has(> button[aria-expanded]):hover {
+  border-color: #d9dce1;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.9),
+    0 1px 2px rgb(16 24 40 / 0.06),
+    0 14px 32px -14px rgb(16 24 40 / 0.20);
+}
+
+/* "This month": cream + amber, the light twin of dark mode's amber card */
+html:not(.ef-dark) .ef-month-card {
+  background-image: linear-gradient(135deg, #fff6e5 0%, #fffbf3 50%, #ffffff 100%) !important;
+  border-color: #f1dcb0 !important;
+}
+html:not(.ef-dark) .ef-month-card .ef-month-glow { background-color: rgb(245 158 11 / 0.10) !important; }
+
+/* Glassy header that lifts off the page */
+html:not(.ef-dark) .ef-header {
+  background-color: rgb(255 255 255 / 0.78);
+  border-bottom-color: rgb(16 24 40 / 0.06);
+  box-shadow: 0 6px 24px -18px rgb(16 24 40 / 0.35);
+}
+
+/* Stat-card icons: one step more colour + a hairline ring in the same colour */
+html:not(.ef-dark) .ef-stat-icon {
+  background-color: color-mix(in srgb, currentColor 13%, #ffffff);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 22%, transparent);
 }
 
 /* Logo: black version in light mode, white version (logo2.png) in dark mode */

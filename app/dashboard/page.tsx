@@ -3229,7 +3229,7 @@ function SettingsModal({ value, onChange, theme, onThemeChange, openDefaults, on
 
 // ─── Main Dashboard ───────────────────────────────────────────────────────────
 // Shared surface style for every Beginner-view section card
-const CARD = 'bg-white border border-gray-100 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.10)]'
+const CARD = 'ef-card bg-white border border-gray-100 rounded-2xl shadow-[0_1px_2px_rgba(16,24,40,0.04),0_8px_24px_-12px_rgba(16,24,40,0.10)]'
 
 export default function Dashboard() {
   const [expenses, setExpenses]               = useState<Expense[]>([])
@@ -4184,9 +4184,9 @@ export default function Dashboard() {
           onLogout={handleLogout}
         />
       ) : (
-      <div className="min-h-screen bg-[var(--ef-page)]">
+      <div className="ef-canvas min-h-screen bg-[var(--ef-page)]">
         {/* ── Sticky Top Bar ── */}
-        <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-100">
+        <header className="ef-header sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-100">
           <div className="max-w-2xl mx-auto px-4 sm:px-5 py-2.5">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2.5">
@@ -4273,8 +4273,8 @@ export default function Dashboard() {
           {/* ── Welcome + Balance Card ── */}
           <div className="mb-3">
             {fullName && (
-              <p className="text-xl font-bold text-black mb-3 tracking-tight">
-                Welcome back, <span className="text-gray-400 font-semibold">{fullName}</span>
+              <p className="text-xl font-normal text-black mb-3 tracking-tight">
+                Welcome back, <span className="text-gray-400 font-normal">{fullName}</span>
               </p>
             )}
 
@@ -4453,7 +4453,7 @@ export default function Dashboard() {
                   )}
                   <div className="relative z-10">
                     <div className="flex items-center gap-2">
-                      <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${s.iconBg}`}>{s.icon}</span>
+                      <span className={`ef-stat-icon w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${s.iconBg}`}>{s.icon}</span>
                       <p className="text-xs text-gray-500 truncate flex-1">{s.label}</p>
                       {'hideable' in s && s.hideable && (
                         <button onClick={() => setShowIncome(v => !v)} title={showIncome ? 'Hide' : 'Show'} aria-label={showIncome ? 'Hide income' : 'Show income'}
