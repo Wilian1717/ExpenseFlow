@@ -4072,6 +4072,139 @@ export default function Dashboard() {
   const canGoPrev  = monthIndex > 0
   const canGoNext  = monthIndex < last6Months.length - 1
 
+  // ── Reserved money panel ── built once, shown by both Legacy (collapsible card)
+  // and Expert (Dashboard + Budgets sections) so the two never drift apart.
+  const reservedPanel = (() => {
+    const short = freeToSpend < 0
+    const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+    const dueLabel = (iso: string, overdue: boolean) => {
+      if (overdue) return { text: 'Overdue', cls: 'text-red-600' }
+      const d = new Date(`${iso}T00:00:00`)
+      const days = Math.round((d.getTime() - todayStart.getTime()) / 86_400_000)
+      if (days === 0) return { text: 'Due today', cls: 'text-amber-600' }
+      if (days <= 3) return { text: `Due in ${days}d`, cls: 'text-amber-600' }
+      return { text: `Due ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, cls: 'text-gray-400' }
+    }
+    return (
+      <div>
+              {/* 1. The answer, first and big */}
+              <div className={`rounded-2xl px-4 py-4 ${short ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                <p className={`text-[11px] font-medium ${short ? 'text-red-700' : 'text-emerald-700'}`}>
+                  {short ? 'You need more money' : 'You can still spend'}
+                </p>
+                <p className={`text-2xl font-semibold tracking-tight tabular-nums mt-0.5 ${short ? 'text-red-700' : 'text-emerald-800'}`}>
+                  {fmt(Math.abs(freeToSpend))}
+                </p>
+                <p className={`text-xs mt-1.5 leading-relaxed ${short ? 'text-red-700/80' : 'text-emerald-800/80'}`}>
+                  {short
+                    ? 'Your budgets and bills cost more than what you have left. Turn off a budget you can skip.'
+                    : <>About <strong className="font-semibold">{fmt(Math.round(safeToSpendPerDay.perDay))} a day</strong> for the next {safeToSpendPerDay.daysLeft} {safeToSpendPerDay.daysLeft === 1 ? 'day' : 'days'}.</>}
+                </p>
+              </div>
+
+              {/* 2. How we got there — a simple receipt */}
+              <div className="mt-4 rounded-2xl border border-gray-100 px-4 py-1">
+                {[
+                  { label: 'Money left', hint: 'Income minus spending so far', value: netSavings, sign: '' },
+                  { label: 'Kept for budgets', hint: `${reserved.poolCount} ${reserved.poolCount === 1 ? 'budget' : 'budgets'}`, value: reserved.pools, sign: '−' },
+                  { label: 'Bills to pay', hint: `${reserved.billCount} ${reserved.billCount === 1 ? 'bill' : 'bills'} this month`, value: reserved.bills, sign: '−' },
+                ].map(row => (
+                  <div key={row.label} className="flex items-center justify-between gap-3 py-2.5 border-b border-gray-100">
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-800">{row.label}</p>
+                      <p className="text-[11px] text-gray-400 truncate">{row.hint}</p>
+                    </div>
+                    <p className={`text-sm tabular-nums shrink-0 ${row.sign ? 'text-gray-600' : 'font-medium text-black'}`}>
+                      {row.sign && <span className="text-gray-400 mr-1">{row.sign}</span>}
+                      {row.value < 0 && !row.sign ? '-' : ''}{fmt(Math.abs(row.value))}
+                    </p>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between gap-3 py-3">
+                  <p className="text-sm font-semibold text-black">{short ? 'Not enough by' : 'You can spend'}</p>
+                  <p className={`text-sm font-semibold tabular-nums ${short ? 'text-red-600' : 'text-emerald-600'}`}>{fmt(Math.abs(freeToSpend))}</p>
+                </div>
+              </div>
+
+              {/* 3. Budgets — choose what to set aside */}
+              {reserved.poolItems.length > 0 && (
+                <div className="mt-5">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-sm font-semibold text-black">Your budgets</p>
+                    <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 rounded-full px-1.5 py-0.5">{reserved.poolItems.length}</span>
+                  </div>
+                  <div className="flex flex-col divide-y divide-gray-100">
+                    {reserved.poolItems.map(({ pool, spent: used, left, on }) => {
+                      const cfg = CATEGORY_CONFIG[pool.category]
+                      const over = used > pool.budget_amount
+                      return (
+                        <div key={pool.id} className="flex items-center gap-3 py-2.5">
+                          <div className={`w-8 h-8 rounded-xl ${cfg.bg} flex items-center justify-center shrink-0 ${on ? '' : 'opacity-50'}`}><span className={cfg.text}>{cfg.icon}</span></div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm truncate ${on ? 'text-gray-900' : 'text-gray-500'}`}>{pool.title}</p>
+                            <p className={`text-[11px] truncate ${over ? 'text-red-500' : 'text-gray-400'}`}>
+                              {over ? `Over by ${fmt(used - pool.budget_amount)}`
+                                : left === 0 ? 'All used'
+                                : on ? `${fmt(left)} kept`
+                                : `Skipped · ${fmt(left)} free to use`}
+                            </p>
+                          </div>
+                          <button role="switch" aria-checked={on} aria-label={`Keep money for ${pool.title}`}
+                            title={on ? 'Kept — tap to skip' : 'Skipped — tap to keep'}
+                            onClick={() => handleTogglePoolReserved(pool.id, !on)}
+                            className={`relative w-9 h-5 rounded-full shrink-0 transition-colors ${on ? 'bg-black' : 'bg-gray-200'}`}>
+                            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : ''}`} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* 4. Bills still to pay */}
+              {reserved.billItems.length > 0 && (
+                <div className="mt-5">
+                  <div className="flex items-center gap-2 mb-1">
+                    <p className="text-sm font-semibold text-black">Bills to pay</p>
+                    <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 rounded-full px-1.5 py-0.5">{reserved.billItems.length}</span>
+                  </div>
+                  <div className="flex flex-col divide-y divide-gray-100">
+                    {reserved.billItems.map(({ bill, times, amount, firstDue, overdue }) => {
+                      const cfg = CATEGORY_CONFIG[bill.category]
+                      const due = dueLabel(firstDue, overdue)
+                      const paying = payingBillId === bill.id
+                      return (
+                        <div key={bill.id} className="flex items-center gap-3 py-2.5">
+                          <div className={`w-8 h-8 rounded-xl ${cfg.bg} flex items-center justify-center shrink-0`}><span className={cfg.text}>{cfg.icon}</span></div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-900 truncate">
+                              {bill.title}
+                              {times > 1 && <span className="ml-1.5 text-[10px] text-gray-400 font-medium">{times}x</span>}
+                            </p>
+                            <p className={`text-[11px] ${due.cls}`}>{due.text} · {fmt(amount)}</p>
+                          </div>
+                          <button onClick={() => handlePayBill(bill)} disabled={paying}
+                            className="flex items-center justify-center gap-1 h-8 px-3 rounded-full border border-gray-200 text-xs font-medium text-gray-700 hover:border-black hover:text-black transition-all shrink-0 disabled:opacity-50">
+                            {paying ? <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" /> : <><Check size={12} /> Mark paid</>}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 rounded-xl bg-gray-50 px-3 py-2.5 flex items-start gap-2">
+                <Lightbulb size={13} className="text-gray-400 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-gray-500 leading-relaxed">
+                  Spent from a budget? Tap <strong className="font-medium text-gray-700">+ Log</strong>{' '}on the Budgets tab so it&apos;s only counted once.
+                </p>
+              </div>
+      </div>
+    )
+  })()
+
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
@@ -4145,6 +4278,10 @@ export default function Dashboard() {
       {viewMode === 'expert' ? (
         <ExpertView
           fullName={fullName}
+          reservedPanel={reservedPanel}
+          reservedSummary={{ active: reserved.active, total: reserved.total, isCurrentMonth: reserved.isCurrentMonth, hasItems: reserved.poolItems.length > 0 || reserved.billItems.length > 0 }}
+          freeToSpend={freeToSpend} spendingPace={spendingPace}
+          showIncome={showIncome} setShowIncome={setShowIncome}
           selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth}
           last6Months={last6Months} incomeLast6Months={incomeLast6Months}
           cumulativeBalance={cumulativeBalance} netSavings={netSavings}
@@ -4615,15 +4752,6 @@ export default function Dashboard() {
               so "free" is what's honestly left. Current month only. */}
           {reserved.isCurrentMonth && (reserved.poolItems.length > 0 || reserved.billItems.length > 0) && (() => {
             const short  = freeToSpend < 0
-            const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
-            const dueLabel = (iso: string, overdue: boolean) => {
-              if (overdue) return { text: 'Overdue', cls: 'text-red-600' }
-              const d = new Date(`${iso}T00:00:00`)
-              const days = Math.round((d.getTime() - todayStart.getTime()) / 86_400_000)
-              if (days === 0) return { text: 'Due today', cls: 'text-amber-600' }
-              if (days <= 3) return { text: `Due in ${days}d`, cls: 'text-amber-600' }
-              return { text: `Due ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`, cls: 'text-gray-400' }
-            }
             return (
           <div className={`${CARD} px-4 py-3 mb-3`}>
             <button onClick={() => setReservedOpen(v => !v)} aria-expanded={reservedOpen}
@@ -4647,120 +4775,7 @@ export default function Dashboard() {
             </button>
 
             {reservedOpen && (<div className="animate-slide-up mt-4">
-              {/* 1. The answer, first and big */}
-              <div className={`rounded-2xl px-4 py-4 ${short ? 'bg-red-50' : 'bg-emerald-50'}`}>
-                <p className={`text-[11px] font-medium ${short ? 'text-red-700' : 'text-emerald-700'}`}>
-                  {short ? 'You need more money' : 'You can still spend'}
-                </p>
-                <p className={`text-2xl font-semibold tracking-tight tabular-nums mt-0.5 ${short ? 'text-red-700' : 'text-emerald-800'}`}>
-                  {fmt(Math.abs(freeToSpend))}
-                </p>
-                <p className={`text-xs mt-1.5 leading-relaxed ${short ? 'text-red-700/80' : 'text-emerald-800/80'}`}>
-                  {short
-                    ? 'Your budgets and bills cost more than what you have left. Turn off a budget you can skip.'
-                    : <>About <strong className="font-semibold">{fmt(Math.round(safeToSpendPerDay.perDay))} a day</strong> for the next {safeToSpendPerDay.daysLeft} {safeToSpendPerDay.daysLeft === 1 ? 'day' : 'days'}.</>}
-                </p>
-              </div>
-
-              {/* 2. How we got there — a simple receipt */}
-              <div className="mt-4 rounded-2xl border border-gray-100 px-4 py-1">
-                {[
-                  { label: 'Money left', hint: 'Income minus spending so far', value: netSavings, sign: '' },
-                  { label: 'Kept for budgets', hint: `${reserved.poolCount} ${reserved.poolCount === 1 ? 'budget' : 'budgets'}`, value: reserved.pools, sign: '−' },
-                  { label: 'Bills to pay', hint: `${reserved.billCount} ${reserved.billCount === 1 ? 'bill' : 'bills'} this month`, value: reserved.bills, sign: '−' },
-                ].map(row => (
-                  <div key={row.label} className="flex items-center justify-between gap-3 py-2.5 border-b border-gray-100">
-                    <div className="min-w-0">
-                      <p className="text-sm text-gray-800">{row.label}</p>
-                      <p className="text-[11px] text-gray-400 truncate">{row.hint}</p>
-                    </div>
-                    <p className={`text-sm tabular-nums shrink-0 ${row.sign ? 'text-gray-600' : 'font-medium text-black'}`}>
-                      {row.sign && <span className="text-gray-400 mr-1">{row.sign}</span>}
-                      {row.value < 0 && !row.sign ? '-' : ''}{fmt(Math.abs(row.value))}
-                    </p>
-                  </div>
-                ))}
-                <div className="flex items-center justify-between gap-3 py-3">
-                  <p className="text-sm font-semibold text-black">{short ? 'Not enough by' : 'You can spend'}</p>
-                  <p className={`text-sm font-semibold tabular-nums ${short ? 'text-red-600' : 'text-emerald-600'}`}>{fmt(Math.abs(freeToSpend))}</p>
-                </div>
-              </div>
-
-              {/* 3. Budgets — choose what to set aside */}
-              {reserved.poolItems.length > 0 && (
-                <div className="mt-5">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="text-sm font-semibold text-black">Your budgets</p>
-                    <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 rounded-full px-1.5 py-0.5">{reserved.poolItems.length}</span>
-                  </div>
-                  <div className="flex flex-col divide-y divide-gray-100">
-                    {reserved.poolItems.map(({ pool, spent: used, left, on }) => {
-                      const cfg = CATEGORY_CONFIG[pool.category]
-                      const over = used > pool.budget_amount
-                      return (
-                        <div key={pool.id} className="flex items-center gap-3 py-2.5">
-                          <div className={`w-8 h-8 rounded-xl ${cfg.bg} flex items-center justify-center shrink-0 ${on ? '' : 'opacity-50'}`}><span className={cfg.text}>{cfg.icon}</span></div>
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm truncate ${on ? 'text-gray-900' : 'text-gray-500'}`}>{pool.title}</p>
-                            <p className={`text-[11px] truncate ${over ? 'text-red-500' : 'text-gray-400'}`}>
-                              {over ? `Over by ${fmt(used - pool.budget_amount)}`
-                                : left === 0 ? 'All used'
-                                : on ? `${fmt(left)} kept`
-                                : `Skipped · ${fmt(left)} free to use`}
-                            </p>
-                          </div>
-                          <button role="switch" aria-checked={on} aria-label={`Keep money for ${pool.title}`}
-                            title={on ? 'Kept — tap to skip' : 'Skipped — tap to keep'}
-                            onClick={() => handleTogglePoolReserved(pool.id, !on)}
-                            className={`relative w-9 h-5 rounded-full shrink-0 transition-colors ${on ? 'bg-black' : 'bg-gray-200'}`}>
-                            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : ''}`} />
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* 4. Bills still to pay */}
-              {reserved.billItems.length > 0 && (
-                <div className="mt-5">
-                  <div className="flex items-center gap-2 mb-1">
-                    <p className="text-sm font-semibold text-black">Bills to pay</p>
-                    <span className="text-[10px] font-semibold text-gray-500 bg-gray-100 rounded-full px-1.5 py-0.5">{reserved.billItems.length}</span>
-                  </div>
-                  <div className="flex flex-col divide-y divide-gray-100">
-                    {reserved.billItems.map(({ bill, times, amount, firstDue, overdue }) => {
-                      const cfg = CATEGORY_CONFIG[bill.category]
-                      const due = dueLabel(firstDue, overdue)
-                      const paying = payingBillId === bill.id
-                      return (
-                        <div key={bill.id} className="flex items-center gap-3 py-2.5">
-                          <div className={`w-8 h-8 rounded-xl ${cfg.bg} flex items-center justify-center shrink-0`}><span className={cfg.text}>{cfg.icon}</span></div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-gray-900 truncate">
-                              {bill.title}
-                              {times > 1 && <span className="ml-1.5 text-[10px] text-gray-400 font-medium">{times}x</span>}
-                            </p>
-                            <p className={`text-[11px] ${due.cls}`}>{due.text} · {fmt(amount)}</p>
-                          </div>
-                          <button onClick={() => handlePayBill(bill)} disabled={paying}
-                            className="flex items-center justify-center gap-1 h-8 px-3 rounded-full border border-gray-200 text-xs font-medium text-gray-700 hover:border-black hover:text-black transition-all shrink-0 disabled:opacity-50">
-                            {paying ? <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" /> : <><Check size={12} /> Mark paid</>}
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <div className="mt-4 rounded-xl bg-gray-50 px-3 py-2.5 flex items-start gap-2">
-                <Lightbulb size={13} className="text-gray-400 shrink-0 mt-0.5" />
-                <p className="text-[11px] text-gray-500 leading-relaxed">
-                  Spent from a budget? Tap <strong className="font-medium text-gray-700">+ Log</strong>{' '}on the Budgets tab so it&apos;s only counted once.
-                </p>
-              </div>
+              {reservedPanel}
             </div>)}
           </div>
             )

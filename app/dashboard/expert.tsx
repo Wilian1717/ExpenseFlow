@@ -11,7 +11,8 @@ import {
   Check, BarChart2, PiggyBank, ArrowUpCircle, Lightbulb, AlertTriangle, Flag,
   Search, User, Menu, ChevronLeft, ChevronRight, History, CreditCard, Undo2,
   Download, SlidersHorizontal, Eye, EyeOff, Calculator, Users, Settings,
-  LayoutGrid, Target, Info, ArrowRight, TrendingUp, TrendingDown, CalendarDays
+  LayoutGrid, Target, Info, ArrowRight, TrendingUp, TrendingDown, CalendarDays,
+  HandCoins, Lock, Calendar
 } from 'lucide-react'
 import {
   Category, SortOrder, Expense, Income, Budget, SavingsGoal,
@@ -21,7 +22,7 @@ import {
   DailySpendData, DowStat, DailyRecords,
   fmtFull, inMonth, daysLeftInMonth, getMonthLabelFull, exportCSV,
   RowMenu, MonthPickerDropdown, SmartInsightsContent, Sparkline, Ring, CatIcon,
-  scrollHorizontally, monthlyEquivalent, SpendingHeatmap, WeekdayBars, HEAT_COLORS
+  scrollHorizontally, monthlyEquivalent, SpendingHeatmap, WeekdayBars, HEAT_COLORS, SpendingPaceChart
 } from './shared'
 
 type Section = 'dashboard' | 'daily' | 'expenses' | 'income' | 'bills' | 'budgets' | 'goals' | 'shared' | 'reports'
@@ -55,7 +56,7 @@ function SectionHead({ title, sub, children }: {
 }
 
 function Card({ children, className = '' }: { children: React.ReactNode; className?: string }) {
-  return <div className={`bg-white border border-gray-100 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.03)] ${className}`}>{children}</div>
+  return <div className={`ef-card bg-white border border-gray-100 rounded-2xl shadow-[0_1px_3px_rgba(0,0,0,0.03)] ${className}`}>{children}</div>
 }
 
 function CardLabel({ children, right }: { children: React.ReactNode; right?: React.ReactNode }) {
@@ -478,49 +479,65 @@ function BillRow({ r, i, isPaid, localExpId, paying, deleting, onPay, onUndo, on
   )
 }
 
-function PoolCard({ stats, selectedMonth, onOpen, onLog, onArchive }: {
-  stats: ExpensePoolWithStats; selectedMonth: string
+function PoolCard({ stats, selectedMonth, showReserveBadge, onOpen, onLog, onArchive }: {
+  stats: ExpensePoolWithStats; selectedMonth: string; showReserveBadge: boolean
   onOpen: () => void; onLog: () => void; onArchive: () => void
 }) {
   const { pool, spent, remaining, pct } = stats
   const over = spent > pool.budget_amount
   const warn = !over && pct >= 80
   const days = daysLeftInMonth(selectedMonth)
+  const cfg = CATEGORY_CONFIG[pool.category]
+  const isReserved = pool.is_reserved !== false
   return (
-    <div onClick={onOpen} className="border border-gray-100 rounded-xl p-4 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer bg-white">
-      <div className="flex items-start justify-between gap-2 mb-2.5">
-        <div className="flex items-center gap-2.5 min-w-0">
-          <CatIcon category={pool.category} size={32} />
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-gray-900 truncate">{pool.title}</p>
-            <p className="text-xs text-gray-400">{fmtFull(pool.budget_amount)} / month</p>
-          </div>
+    <div onClick={onOpen} className="ef-card rounded-2xl border border-gray-100 bg-white p-4 hover:border-gray-200 hover:shadow-[0_8px_24px_-14px_rgba(16,24,40,0.18)] transition-all cursor-pointer flex flex-col">
+      {/* Top: icon, name, % chip, Log, menu */}
+      <div className="flex items-center gap-3">
+        <div className={`w-10 h-10 ${cfg.bg} rounded-xl flex items-center justify-center shrink-0`}><span className={cfg.text}>{cfg.icon}</span></div>
+        <div className="flex-1 min-w-0">
+          <p className="text-[15px] font-semibold text-black truncate tracking-tight">{pool.title}</p>
+          <p className="text-xs text-gray-500">{fmtFull(pool.budget_amount)} / month</p>
         </div>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button onClick={e => { e.stopPropagation(); onLog() }}
-            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-gray-200 text-xs text-gray-600 hover:border-black hover:text-black transition-all">
-            <Plus size={11} /> Log
-          </button>
+        {spent > 0 && (
+          <span className={`text-xs font-semibold tabular-nums rounded-full px-2.5 py-1 shrink-0 ${over ? 'bg-red-50 text-red-600' : warn ? 'bg-amber-50 text-amber-700' : `${cfg.bg} ${cfg.text}`}`}>
+            {over ? `${Math.round((spent / pool.budget_amount) * 100)}%` : `${pct.toFixed(0)}%`}
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2 mt-3">
+        <button onClick={e => { e.stopPropagation(); onLog() }}
+          className="flex items-center gap-1 h-8 px-3.5 rounded-full bg-black text-white text-xs font-semibold hover:bg-gray-800 active:scale-[.97] transition-all">
+          <Plus size={12} /> Log
+        </button>
+        {showReserveBadge && (isReserved
+          ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-amber-50 text-amber-700"><Lock size={9} /> Reserved</span>
+          : <span className="inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-gray-100 text-gray-500">Flexible</span>)}
+        <div className="ml-auto" onClick={e => e.stopPropagation()}>
           <RowMenu items={[
             { label: 'Details', icon: <History size={13} />, onClick: onOpen },
             { label: 'Archive', icon: <Trash2 size={13} />, onClick: onArchive, danger: true },
           ]} />
         </div>
       </div>
-      <div className="bg-gray-100 rounded-full h-1.5 overflow-hidden mb-1.5">
-        <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: over ? '#ef4444' : warn ? '#f59e0b' : CATEGORY_COLOR[pool.category] }} />
-      </div>
-      <div className="flex items-center justify-between gap-2 text-xs">
-        {spent === 0
-          ? <span className="text-gray-300 italic truncate">Not logged yet this month</span>
-          : <span className="text-gray-500 truncate">{fmtFull(spent)} used</span>}
+      {/* Progress, or a gentle empty state */}
+      {spent === 0 ? (
+        <div className="mt-3 flex items-center justify-center gap-1.5 h-9 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">
+          <Calendar size={13} /> Not logged yet this month
+        </div>
+      ) : (
+        <div className="mt-3 bg-gray-100 rounded-full h-2 overflow-hidden">
+          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: over ? '#ef4444' : warn ? '#f59e0b' : CATEGORY_COLOR[pool.category] }} />
+        </div>
+      )}
+      <div className="mt-2.5 flex items-center justify-between gap-2 text-xs">
+        <span className="text-gray-600 tabular-nums truncate">
+          {spent > 0 ? <><span className="font-medium text-black">{fmtFull(spent)}</span> used</> : <span className="text-gray-400">Nothing used yet</span>}
+        </span>
         {over
-          ? <span className="text-red-500 font-medium text-right shrink-0">Over by {fmtFull(spent - pool.budget_amount)}</span>
-          : warn
-          ? <span className="text-amber-500 text-right shrink-0">{fmtFull(remaining)} left</span>
-          : <span className="text-gray-400 text-right shrink-0">{fmtFull(remaining)} remaining</span>}
+          ? <span className="text-red-600 font-medium tabular-nums shrink-0">Over by {fmtFull(spent - pool.budget_amount)}</span>
+          : <span className={`tabular-nums shrink-0 ${warn ? 'text-amber-600' : 'text-gray-600'}`}>{fmtFull(remaining)} left</span>}
       </div>
-      {days !== null && <p className="text-[10px] text-gray-300 mt-1 text-right">{days}d left in the month</p>}
+      {days !== null && <p className="text-[10px] text-gray-400 mt-1 text-right">{days}d left in the month</p>}
     </div>
   )
 }
@@ -653,6 +670,13 @@ function GoalCard({ goal, onOpen }: { goal: SavingsGoal; onOpen: () => void }) {
 
 export interface ExpertViewProps {
   fullName: string
+  // shared with Legacy view (built once in page.tsx)
+  reservedPanel: React.ReactNode
+  reservedSummary: { active: boolean; total: number; isCurrentMonth: boolean; hasItems: boolean }
+  freeToSpend: number
+  spendingPace: { thisSeries: number[]; lastSeries: number[] }
+  showIncome: boolean
+  setShowIncome: React.Dispatch<React.SetStateAction<boolean>>
   // month
   selectedMonth: string
   setSelectedMonth: (m: string) => void
@@ -1066,13 +1090,21 @@ export default function ExpertView(p: ExpertViewProps) {
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-y-3 pt-4 border-t border-gray-100 sm:divide-x sm:divide-gray-100">
                     {[
-                      { l: 'Income', v: fmtFull(p.thisMonthIncomeTot), c: 'text-emerald-700' },
+                      { l: 'Income', v: p.showIncome ? fmtFull(p.thisMonthIncomeTot) : '••••••', c: p.showIncome ? 'text-emerald-700' : 'text-gray-300 tracking-widest' },
                       { l: 'Expenses', v: fmtFull(p.thisMonthTotal), c: 'text-red-600' },
                       { l: 'Transactions', v: String(monthExpenses.length), c: 'text-gray-900' },
                       { l: 'Avg/transaction', v: monthExpenses.length ? fmtFull(p.thisMonthTotal / monthExpenses.length) : '—', c: 'text-gray-900' },
                     ].map((s, i) => (
                       <div key={s.l} className={`min-w-0 ${i > 0 ? 'sm:pl-4' : ''}`}>
-                        <p className="text-[11px] text-gray-400">{s.l}</p>
+                        <p className="text-[11px] text-gray-400 flex items-center gap-1.5">
+                          {s.l}
+                          {s.l === 'Income' && (
+                            <button onClick={() => p.setShowIncome(v => !v)} title={p.showIncome ? 'Hide income' : 'Show income'}
+                              className="text-gray-300 hover:text-black transition-colors">
+                              {p.showIncome ? <EyeOff size={11} /> : <Eye size={11} />}
+                            </button>
+                          )}
+                        </p>
                         <p className={`text-sm font-semibold tabular-nums truncate ${s.c}`}>{s.v}</p>
                       </div>
                     ))}
@@ -1147,7 +1179,27 @@ export default function ExpertView(p: ExpertViewProps) {
               </div>
 
               {/* Row 2: Stat cards */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4 mb-4">
+                {/* Safe to spend — money left after budgets and bills are set aside */}
+                {(() => {
+                  const s = p.safeToSpendPerDay
+                  const shortNow = s.isCurrentMonth && p.freeToSpend <= 0
+                  return (
+                    <div className="stat-card bg-white border border-gray-100 rounded-2xl p-4 flex flex-col">
+                      <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Safe to spend</p>
+                      <p className={`text-lg sm:text-xl font-semibold mt-1.5 tabular-nums tracking-tight truncate ${shortNow ? 'text-red-600' : 'text-black'}`}>
+                        {!s.isCurrentMonth ? '—' : `${fmtFull(Math.round(s.perDay))}/day`}
+                      </p>
+                      <p className={`text-[10px] mt-auto pt-2 flex items-center gap-1 ${shortNow ? 'text-red-600' : 'text-gray-400'}`}>
+                        {!s.isCurrentMonth ? 'Month ended'
+                          : shortNow ? <><AlertTriangle size={10} /> Reserved uses it all</>
+                          : p.reservedSummary.active ? <><Lock size={10} /> after reserved · {s.daysLeft}d left</>
+                          : `${s.daysLeft} days left`}
+                      </p>
+                    </div>
+                  )
+                })()}
+
                 <div className="stat-card bg-white border border-gray-100 rounded-2xl p-4 flex flex-col">
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wide">Spending rate</p>
                   <p className="text-lg sm:text-xl font-semibold text-black mt-1.5 tabular-nums tracking-tight">{p.thisMonthIncomeTot > 0 ? `${p.spendingRate.toFixed(0)}%` : '—'}</p>
@@ -1271,10 +1323,19 @@ export default function ExpertView(p: ExpertViewProps) {
               {/* Row 4: Insights column + Recent transactions */}
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
                 <div className="space-y-4">
+                  {p.reservedSummary.isCurrentMonth && p.reservedSummary.hasItems && (
+                    <Card className="p-5">
+                      <CardLabel right={<span className="text-[11px] text-gray-400 tabular-nums">{fmtFull(p.reservedSummary.total)} kept aside</span>}>
+                        <HandCoins size={13} /> Reserved money
+                      </CardLabel>
+                      {p.reservedPanel}
+                    </Card>
+                  )}
                   <Card className="p-5">
                     <CardLabel><Lightbulb size={13} /> Smart insights</CardLabel>
                     <SmartInsightsContent thisMonthTotal={p.thisMonthTotal} lastMonthTotal={p.lastMonthTotal} avgPerDay={p.avgPerDay}
-                      categoryTotals={p.categoryTotals} thisMonthIncomeTot={p.thisMonthIncomeTot} netSavings={p.netSavings} budgets={p.budgets} budgetSpend={p.budgetSpend} />
+                      categoryTotals={p.categoryTotals} thisMonthIncomeTot={p.thisMonthIncomeTot} netSavings={p.netSavings} budgets={p.budgets} budgetSpend={p.budgetSpend}
+                      freeToSpend={p.reservedSummary.active ? p.freeToSpend : undefined} />
                   </Card>
 
                   <Card className="p-5">
@@ -1404,7 +1465,7 @@ export default function ExpertView(p: ExpertViewProps) {
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
                   <Card className="p-5">
                     <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">{getMonthLabelFull(p.selectedMonth)}</p>
-                    <SpendingHeatmap data={p.dailySpend} monthKey={p.selectedMonth} size="comfortable" onSelectDay={p.setOpenDay} />
+                    <SpendingHeatmap data={p.dailySpend} monthKey={p.selectedMonth} size="comfortable" onSelectDay={p.setOpenDay} showWeekTotals />
                     <p className="text-[10px] text-gray-300 text-center mt-2">Click any day to see what you spent</p>
                   </Card>
 
@@ -1437,6 +1498,13 @@ export default function ExpertView(p: ExpertViewProps) {
                     )}
                   </Card>
                 </div>
+
+                <Card className="p-5 mb-4">
+                  <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Spending pace vs last month</p>
+                  <div className="max-w-3xl">
+                    <SpendingPaceChart thisSeries={p.spendingPace.thisSeries} lastSeries={p.spendingPace.lastSeries} daysInMonth={p.dailySpend.daysInMonth} />
+                  </div>
+                </Card>
 
                 <Card className="p-5">
                   <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">Every day this month</p>
@@ -1534,9 +1602,20 @@ export default function ExpertView(p: ExpertViewProps) {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4">
                 <div className="stat-card bg-white border border-gray-100 rounded-2xl p-4">
-                  <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Total income</p>
-                  <p className="text-lg font-semibold text-emerald-700 mt-1 tabular-nums truncate">{fmtFull(p.thisMonthIncomeTot)}</p>
-                  <div className="h-8 mt-2"><Sparkline data={p.incomeLast6Months.map(m => m.total)} height={32} stroke={GREEN} labels={monthLabels} format={v => fmtFull(v)} /></div>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Total income</p>
+                    <button onClick={() => p.setShowIncome(v => !v)} title={p.showIncome ? 'Hide income' : 'Show income'}
+                      className="text-gray-300 hover:text-black transition-colors">
+                      {p.showIncome ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </button>
+                  </div>
+                  {p.showIncome ? (<>
+                    <p className="text-lg font-semibold text-emerald-700 mt-1 tabular-nums truncate">{fmtFull(p.thisMonthIncomeTot)}</p>
+                    <div className="h-8 mt-2"><Sparkline data={p.incomeLast6Months.map(m => m.total)} height={32} stroke={GREEN} labels={monthLabels} format={v => fmtFull(v)} /></div>
+                  </>) : (<>
+                    <p className="text-lg font-semibold text-gray-300 mt-1 tracking-widest select-none">••••••</p>
+                    <div className="h-8 mt-2" />
+                  </>)}
                 </div>
                 <div className="stat-card bg-white border border-gray-100 rounded-2xl p-4">
                   <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Net savings</p>
@@ -1621,6 +1700,38 @@ export default function ExpertView(p: ExpertViewProps) {
                 <button onClick={() => p.setShowAddPool(true)} className={btnPrimary}><Plus size={14} /> New Budget</button>
               </SectionHead>
 
+              {p.poolsThisMonth.length > 0 && (() => {
+                const totalBudget = p.poolsThisMonth.reduce((s, x) => s + x.pool.budget_amount, 0)
+                const totalUsed   = p.poolsThisMonth.reduce((s, x) => s + x.spent, 0)
+                const totalLeft   = Math.max(totalBudget - totalUsed, 0)
+                const usedPct     = totalBudget > 0 ? Math.min((totalUsed / totalBudget) * 100, 100) : 0
+                return (
+                  <Card className="p-5 mb-4">
+                    <div className="flex items-center gap-5 flex-wrap">
+                      <div className="min-w-0 flex-1 basis-48">
+                        <p className="text-base font-semibold text-black tracking-tight">Your Budgets</p>
+                        <p className="text-xs text-gray-500 mt-0.5">Stay on track with your monthly plan</p>
+                      </div>
+                      <div className="grid grid-cols-3 flex-[2] basis-80 min-w-0">
+                        {[
+                          { label: 'Total budgeted', value: totalBudget },
+                          { label: 'Total used', value: totalUsed },
+                          { label: 'Remaining', value: totalLeft },
+                        ].map((s, i) => (
+                          <div key={s.label} className={`min-w-0 ${i > 0 ? 'pl-4 border-l border-gray-100' : ''}`}>
+                            <p className="text-sm sm:text-base font-semibold text-black tabular-nums truncate">{fmtFull(s.value)}</p>
+                            <p className="text-[11px] text-gray-500 mt-0.5 truncate">{s.label}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <Ring pct={usedPct} size={60} stroke={6} color="var(--ef-ink)">
+                        <span className="text-xs font-semibold text-black tabular-nums">{usedPct.toFixed(0)}%</span>
+                      </Ring>
+                    </div>
+                  </Card>
+                )
+              })()}
+
               {p.budgets.length > 0 && (
                 <Card className="p-5 mb-4">
                   <CardLabel><Target size={13} /> Category budgets</CardLabel>
@@ -1663,11 +1774,20 @@ export default function ExpertView(p: ExpertViewProps) {
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3 sm:gap-4">
                   {p.poolsThisMonth.map(stats => (
-                    <PoolCard key={stats.pool.id} stats={stats} selectedMonth={p.selectedMonth}
+                    <PoolCard key={stats.pool.id} stats={stats} selectedMonth={p.selectedMonth} showReserveBadge={p.reservedSummary.isCurrentMonth}
                       onOpen={() => p.setOpenPool(stats.pool)} onLog={() => p.setLoggingPool(stats.pool)}
                       onArchive={() => p.handleArchivePool(stats.pool.id)} />
                   ))}
                 </div>
+              )}
+
+              {p.reservedSummary.isCurrentMonth && p.reservedSummary.hasItems && (
+                <Card className="p-5 mt-4">
+                  <CardLabel right={<span className="text-[11px] text-gray-400 tabular-nums">{fmtFull(p.reservedSummary.total)} kept aside</span>}>
+                    <HandCoins size={13} /> Reserved money
+                  </CardLabel>
+                  <div className="max-w-2xl">{p.reservedPanel}</div>
+                </Card>
               )}
             </>
           )}
