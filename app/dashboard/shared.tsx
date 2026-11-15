@@ -220,7 +220,8 @@ export const WEEKDAY_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 // GitHub-contribution style sequential ramp (empty gray -> light -> deep green).
 // Single-hue and sequential: it says "more", never "bad". Luminance drops
 // monotonically so it still reads correctly in grayscale.
-export const HEAT_COLORS = ['#ebedf0', '#9be9a8', '#40c463', '#30a14e', '#216e39']
+// Values live in globals.css (--heat-0..4) so light and dark themes each get GitHub's own ramp.
+export const HEAT_COLORS = ['var(--heat-0)', 'var(--heat-1)', 'var(--heat-2)', 'var(--heat-3)', 'var(--heat-4)']
 
 /**
  * Heat level 0-4 per day, by quantile (empirical-CDF rank) over elapsed days
@@ -612,7 +613,7 @@ export function Sparkline({ data, stroke = '#059669', fill, height = 36, labels,
 }
 
 // ─── Progress ring ────────────────────────────────────────────────────────────
-export function Ring({ pct, size = 132, stroke = 12, color = '#111110', children }: {
+export function Ring({ pct, size = 132, stroke = 12, color = 'var(--ef-ink)', children }: {
   pct: number; size?: number; stroke?: number; color?: string; children?: React.ReactNode
 }) {
   const r = (size - stroke) / 2
@@ -621,8 +622,8 @@ export function Ring({ pct, size = 132, stroke = 12, color = '#111110', children
   return (
     <div className="relative shrink-0" style={{ width: size, height: size }}>
       <svg width={size} height={size} className="-rotate-90">
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#f1f1ef" strokeWidth={stroke} />
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={stroke} strokeLinecap="round"
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" style={{ stroke: 'var(--ef-track)' }} strokeWidth={stroke} />
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" style={{ stroke: color }} strokeWidth={stroke} strokeLinecap="round"
           strokeDasharray={c} strokeDashoffset={off} className="transition-all duration-700" />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center text-center">{children}</div>
@@ -715,7 +716,7 @@ export function SpendingHeatmap({
         <div key={d.day} role="gridcell" aria-disabled="true"
           aria-label={`${d.day} ${MONTHS[mo - 1]}, upcoming`}
           className={`${common} text-gray-300 cursor-default`}
-          style={{ animationDelay: `${0.012 * i}s`, background: '#f7f8f9' }}>
+          style={{ animationDelay: `${0.012 * i}s`, background: 'var(--heat-future)' }}>
           {d.day}
         </div>
       )
@@ -730,11 +731,11 @@ export function SpendingHeatmap({
         onBlur={() => setHover(h => h === d.day ? null : h)}
         onKeyDown={e => onKeyDown(e, d.day)}
         onClick={() => onSelectDay?.(d.day)}
-        className={`${common} ${onDark ? 'text-white' : lvl === 0 ? 'text-gray-500' : 'text-[#0f3d1f]'} ${onSelectDay ? 'cursor-pointer' : 'cursor-default'} focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black`}
+        className={`${common} ${onDark ? 'text-white' : lvl === 0 ? 'text-gray-500' : 'text-[var(--heat-ink)]'} ${onSelectDay ? 'cursor-pointer' : 'cursor-default'} focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black`}
         style={{
           animationDelay: `${0.012 * i}s`,
           backgroundColor: HEAT_COLORS[lvl],
-          boxShadow: d.isToday ? `0 0 0 2px #ffffff, 0 0 0 3.5px #111110` : undefined,
+          boxShadow: d.isToday ? `0 0 0 2px var(--ef-surface), 0 0 0 3.5px var(--ef-ink)` : undefined,
         }}>
         {d.day}
       </button>
@@ -806,7 +807,7 @@ export function SpendingHeatmap({
             </span>
             {data.isCurrentMonth && (
               <span className="flex items-center gap-1 text-[10px] text-gray-400">
-                <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: '#f7f8f9', border: '1px solid #eceef0' }} /> Upcoming
+                <span className="w-2.5 h-2.5 rounded-[3px]" style={{ background: 'var(--heat-future)', border: '1px solid var(--ef-line)' }} /> Upcoming
               </span>
             )}
           </div>
@@ -916,7 +917,7 @@ export function SpendingPaceChart({ thisSeries, lastSeries, daysInMonth }: {
             </linearGradient>
           </defs>
           {[0.5, 1].map(f => (
-            <line key={f} x1="0" x2="100" y1={H * f} y2={H * f} stroke="#f0f1f3" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+            <line key={f} x1="0" x2="100" y1={H * f} y2={H * f} style={{ stroke: 'var(--ef-line)' }} strokeWidth={1} vectorEffect="non-scaling-stroke" />
           ))}
           {hasLast && (
             <path d={path(lastSeries)} fill="none" stroke="#c4c7cc" strokeWidth={1.5} strokeDasharray="4 4"
@@ -925,7 +926,7 @@ export function SpendingPaceChart({ thisSeries, lastSeries, daysInMonth }: {
           <path d={thisArea} fill={`url(#${gradId})`} stroke="none" />
           <path d={thisLine} fill="none" stroke="#30a14e" strokeWidth={2} vectorEffect="non-scaling-stroke" strokeLinecap="round" strokeLinejoin="round" />
           {hover !== null && (
-            <line x1={xPct(hover)} x2={xPct(hover)} y1="0" y2={H} stroke="#111110" strokeOpacity={0.15} strokeWidth={1} vectorEffect="non-scaling-stroke" />
+            <line x1={xPct(hover)} x2={xPct(hover)} y1="0" y2={H} style={{ stroke: 'var(--ef-ink)' }} strokeOpacity={0.15} strokeWidth={1} vectorEffect="non-scaling-stroke" />
           )}
         </svg>
 

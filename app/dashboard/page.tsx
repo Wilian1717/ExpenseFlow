@@ -12,7 +12,7 @@ import {
   User, Home, Zap, Menu, ChevronLeft, ChevronRight, History, CreditCard,
   MoreVertical, Undo2, Download, SlidersHorizontal, Tv, Eye, EyeOff, Calculator,
   Users, UserPlus, Settings, Bell, LayoutGrid, Lock, LockOpen, CalendarDays,
-  BarChart3, PieChart, ShieldCheck, Gauge, Copy, Vault, ArrowDown, ArrowUp, FileText, Tag
+  BarChart3, PieChart, ShieldCheck, Gauge, Copy, HandCoins, Sun, Moon, ArrowDown, ArrowUp, FileText, Tag
 } from 'lucide-react'
 
 import {
@@ -3115,8 +3115,10 @@ function BudgetSimulatorModal({
 }
 
 
-function SettingsModal({ value, onChange, onClose }: {
-  value: 'beginner' | 'expert'; onChange: (v: 'beginner' | 'expert') => void; onClose: () => void
+function SettingsModal({ value, onChange, theme, onThemeChange, onClose }: {
+  value: 'beginner' | 'expert'; onChange: (v: 'beginner' | 'expert') => void
+  theme: 'light' | 'dark'; onThemeChange: (v: 'light' | 'dark') => void
+  onClose: () => void
 }) {
   return (
     <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0" onClick={onClose}>
@@ -3138,6 +3140,29 @@ function SettingsModal({ value, onChange, onClose }: {
                 {value === o.key && <Check size={14} className="text-black" />}
               </div>
               <span className="text-xs text-gray-400 leading-snug block">{o.desc}</span>
+            </button>
+          ))}
+        </div>
+        <p className="text-xs font-medium text-gray-400 uppercase tracking-wide mt-5 mb-2">Appearance</p>
+        <div className="grid grid-cols-2 gap-2">
+          {([
+            { key: 'light', title: 'Light', icon: <Sun size={14} />, swatch: ['#fafafa', '#ffffff', '#111110'] },
+            { key: 'dark',  title: 'Dark',  icon: <Moon size={14} />, swatch: ['#0b0b0c', '#141416', '#f5f5f6'] },
+          ] as const).map(o => (
+            <button key={o.key} onClick={() => onThemeChange(o.key)}
+              className={`text-left rounded-xl border p-2.5 transition-all ${theme === o.key ? 'border-black bg-gray-50' : 'border-gray-200 hover:border-gray-300'}`}>
+              {/* Mini preview of the theme (fixed colours, so it looks right in either mode) */}
+              <div className="ef-keep rounded-lg h-12 mb-2 p-1.5 flex flex-col gap-1 border border-[#00000014]" style={{ background: o.swatch[0] }}>
+                <div className="h-3 w-3/5 rounded" style={{ background: o.swatch[1], boxShadow: '0 0 0 1px rgb(0 0 0 / 0.06)' }} />
+                <div className="flex gap-1">
+                  <div className="h-3.5 flex-1 rounded" style={{ background: o.swatch[1], boxShadow: '0 0 0 1px rgb(0 0 0 / 0.06)' }} />
+                  <div className="h-3.5 w-5 rounded" style={{ background: o.swatch[2] }} />
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-sm font-medium text-black flex items-center gap-1.5">{o.icon}{o.title}</span>
+                {theme === o.key && <Check size={14} className="text-black" />}
+              </div>
             </button>
           ))}
         </div>
@@ -3240,6 +3265,19 @@ export default function Dashboard() {
   // Beginner/Expert view preference (read client-side to avoid hydration mismatch; default beginner)
   useEffect(() => { const v = localStorage.getItem('ef_view'); if (v === 'expert' || v === 'beginner') setViewMode(v) }, [])
   const changeView = (v: 'beginner' | 'expert') => { localStorage.setItem('ef_view', v); setViewMode(v) }
+
+  // ── Appearance: light / dark ──
+  // Applied as a class on <html> so portals and modals pick it up too; removed
+  // when leaving the dashboard so other pages stay light.
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    try { return typeof window !== 'undefined' && localStorage.getItem('ef_theme') === 'dark' ? 'dark' : 'light' } catch { return 'light' }
+  })
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.toggle('ef-dark', theme === 'dark')
+    return () => root.classList.remove('ef-dark')
+  }, [theme])
+  const changeTheme = (v: 'light' | 'dark') => { try { localStorage.setItem('ef_theme', v) } catch { /* ignore */ } setTheme(v) }
 
   const init = async () => {
     const { data: userData } = await supabase.auth.getUser()
@@ -4062,13 +4100,17 @@ export default function Dashboard() {
           onLogout={handleLogout}
         />
       ) : (
-      <div className="min-h-screen bg-[#fafafa]">
+      <div className="min-h-screen bg-[var(--ef-page)]">
         {/* ── Sticky Top Bar ── */}
         <header className="sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-100">
           <div className="max-w-2xl mx-auto px-4 sm:px-5 py-2.5">
           <div className="flex justify-between items-center">
             <div className="flex items-center gap-2.5">
-              <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0"><img src="/logo.png" alt="logo" className="w-full h-full object-cover" /></div>
+              <div className="w-8 h-8 rounded-lg overflow-hidden shrink-0">
+                {/* Black logo in light mode, white logo in dark mode (switched in globals.css) */}
+                <img src="/logo.png" alt="ExpenseFlow logo" className="ef-logo-light w-full h-full object-cover" />
+                <img src="/logo2.png" alt="" aria-hidden="true" className="ef-logo-dark w-full h-full object-cover" />
+              </div>
               <div>
                 <h1 className="text-base font-bold text-black leading-none tracking-tight">ExpenseFlow</h1>
               </div>
@@ -4177,7 +4219,7 @@ export default function Dashboard() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-2.5">
               {/* Total balance card */}
-              <div className="relative overflow-hidden rounded-2xl bg-linear-to-br from-[#1c1c1c] via-black to-[#0a0a0a] px-4 py-4 shadow-[0_12px_30px_-12px_rgba(0,0,0,0.45)]">
+              <div className="ef-keep relative overflow-hidden rounded-2xl ring-1 ring-[#ffffff12] bg-linear-to-br from-[#1c1c1c] via-black to-[#0a0a0a] px-4 py-4 shadow-[0_12px_30px_-12px_rgba(0,0,0,0.45)]">
                 <div aria-hidden="true" className="pointer-events-none absolute -right-16 -bottom-24 w-72 h-48 rotate-[-18deg] rounded-[40%] bg-linear-to-tr from-transparent via-white/[0.05] to-white/[0.10]" />
                 <div className="relative flex items-center justify-between mb-2.5">
                   <p className="text-[10px] text-white/70 font-semibold uppercase tracking-[0.15em]">Total balance</p>
@@ -4211,8 +4253,8 @@ export default function Dashboard() {
                 const leftPct = 100 - monthlyProgress.pct
                 const ringColor = leftPct >= 50 ? '#059669' : leftPct >= 20 ? '#f59e0b' : '#dc2626'
                 return (
-                  <div className={`${CARD} relative overflow-hidden bg-linear-to-br from-white to-slate-50/70 px-4 py-4 flex items-center gap-3`}>
-                    <div aria-hidden="true" className="pointer-events-none absolute -right-10 -bottom-16 w-40 h-40 rounded-full bg-slate-100/60" />
+                  <div className={`${CARD} ef-month-card relative overflow-hidden bg-linear-to-br from-white to-slate-50/70 px-4 py-4 flex items-center gap-3`}>
+                    <div aria-hidden="true" className="ef-month-glow pointer-events-none absolute -right-10 -bottom-16 w-40 h-40 rounded-full bg-slate-100/60" />
                     <div className="relative">
                       <Ring pct={leftPct} size={54} stroke={5} color={ringColor}>
                         <span className="text-xs font-bold text-black leading-none">{leftPct.toFixed(0)}%</span>
@@ -4338,173 +4380,6 @@ export default function Dashboard() {
             })}
           </div>
 
-          {/* ── Reserved money ── */}
-          {/* Money already promised this month (unlogged budgets + unpaid bills),
-              so "free" is what's honestly left. Current month only. */}
-          {reserved.isCurrentMonth && (reserved.poolItems.length > 0 || reserved.billItems.length > 0) && (() => {
-            const spent  = thisMonthTotal
-            const income = thisMonthIncomeTot
-            const free   = Math.max(freeToSpend, 0)
-            const short  = freeToSpend < 0
-            const denom  = Math.max(income, spent + reserved.total, 1)
-            const w = (v: number) => `${(v / denom) * 100}%`
-            const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
-            const dueLabel = (iso: string, overdue: boolean) => {
-              if (overdue) return { text: 'Overdue', cls: 'text-red-600' }
-              const d = new Date(`${iso}T00:00:00`)
-              const days = Math.round((d.getTime() - todayStart.getTime()) / 86_400_000)
-              if (days === 0) return { text: 'Due today', cls: 'text-amber-600' }
-              if (days <= 3) return { text: `Due in ${days}d`, cls: 'text-amber-600' }
-              return { text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), cls: 'text-gray-400' }
-            }
-            return (
-          <div className={`${CARD} px-4 py-3 mb-3`}>
-            <button onClick={() => setReservedOpen(v => !v)} aria-expanded={reservedOpen}
-              className="w-full flex items-center justify-between gap-2 text-left">
-              <div className="flex items-center gap-2.5 min-w-0">
-                <Vault size={14} className="text-black shrink-0" />
-                <p className="text-xs font-semibold text-black uppercase tracking-wider truncate">Reserved money</p>
-              </div>
-              <div className="flex items-center gap-3 shrink-0 min-w-0">
-                {!reservedOpen && (
-                  <>
-                    <span className="text-xs font-medium text-black truncate">{fmt(reserved.total)} reserved</span>
-                    <span aria-hidden="true" className="hidden sm:inline-block w-px h-4 bg-gray-200" />
-                    <span className={`hidden sm:inline text-[11px] font-medium ${short ? 'text-red-600' : 'text-emerald-600'}`}>
-                      {fmt(Math.abs(freeToSpend))} {short ? 'short' : 'free'}
-                    </span>
-                  </>
-                )}
-                <ChevronRight size={14} className={`text-black transition-transform duration-300 ${reservedOpen ? 'rotate-90' : 'rotate-0'}`} />
-              </div>
-            </button>
-
-            {reservedOpen && (<div className="animate-slide-up mt-4">
-              {/* Equation: Remaining − Reserved = Free */}
-              <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1.5">
-                <div className="rounded-xl bg-gray-50 px-3 py-2.5 min-w-0">
-                  <p className="text-[10px] text-gray-500 truncate">Remaining</p>
-                  <p className={`text-sm font-medium mt-0.5 truncate tabular-nums ${netSavings < 0 ? 'text-red-600' : 'text-black'}`}>{netSavings < 0 ? '-' : ''}{fmt(Math.abs(netSavings))}</p>
-                </div>
-                <span className="text-gray-300 text-sm font-medium" aria-hidden="true">−</span>
-                <div className="rounded-xl bg-amber-50 px-3 py-2.5 min-w-0">
-                  <p className="text-[10px] text-amber-700 truncate">Reserved</p>
-                  <p className="text-sm font-medium text-amber-900 mt-0.5 truncate tabular-nums">{fmt(reserved.total)}</p>
-                </div>
-                <span className="text-gray-300 text-sm font-medium" aria-hidden="true">=</span>
-                <div className={`rounded-xl px-3 py-2.5 min-w-0 ${short ? 'bg-red-50' : 'bg-emerald-50'}`}>
-                  <p className={`text-[10px] truncate ${short ? 'text-red-700' : 'text-emerald-700'}`}>{short ? 'Short' : 'Free to spend'}</p>
-                  <p className={`text-sm font-medium mt-0.5 truncate tabular-nums ${short ? 'text-red-700' : 'text-emerald-800'}`}>{fmt(Math.abs(freeToSpend))}</p>
-                </div>
-              </div>
-
-              {/* Where this month's money goes */}
-              <div className="mt-4">
-                <div className="relative h-2.5 rounded-full bg-gray-100 overflow-hidden flex">
-                  <div className="h-full bg-gray-800 transition-all duration-700" style={{ width: w(spent) }} title={`Spent ${fmt(spent)}`} />
-                  <div className="h-full transition-all duration-700" title={`Reserved ${fmt(reserved.total)}`}
-                    style={{ width: w(reserved.total), backgroundImage: 'repeating-linear-gradient(135deg, #f59e0b 0 4px, #fbbf24 4px 8px)' }} />
-                  <div className="h-full bg-emerald-500 transition-all duration-700" style={{ width: w(free) }} title={`Free ${fmt(free)}`} />
-                  {short && income > 0 && (
-                    <div className="absolute top-0 bottom-0 w-0.5 bg-red-600" style={{ left: w(income) }} title={`Income ${fmt(income)}`} />
-                  )}
-                </div>
-                <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
-                  <div className="flex items-center gap-3 flex-wrap">
-                    <span className="flex items-center gap-1.5 text-[10px] text-gray-500"><span className="w-2 h-2 rounded-full bg-gray-800" />Spent {fmtShort(spent)}</span>
-                    <span className="flex items-center gap-1.5 text-[10px] text-gray-500"><span className="w-2 h-2 rounded-full bg-amber-400" />Reserved {fmtShort(reserved.total)}</span>
-                    <span className="flex items-center gap-1.5 text-[10px] text-gray-500"><span className="w-2 h-2 rounded-full bg-emerald-500" />Free {fmtShort(free)}</span>
-                  </div>
-                  {short && income > 0 && <span className="text-[10px] text-red-600">Red line = your income</span>}
-                </div>
-                <p className="text-xs text-gray-600 mt-3">
-                  {short
-                    ? <>Your budgets and bills need <strong className="font-medium text-red-600">{fmt(Math.abs(freeToSpend))}</strong> more than you have left. Try switching off a budget that can wait.</>
-                    : <>You can safely spend <strong className="font-medium text-black">{fmt(Math.round(safeToSpendPerDay.perDay))}</strong> a day for the next {safeToSpendPerDay.daysLeft} {safeToSpendPerDay.daysLeft === 1 ? 'day' : 'days'}.</>}
-                </p>
-              </div>
-
-              {/* Budgets */}
-              {reserved.poolItems.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-100">
-                  <div className="flex items-baseline justify-between gap-2 mb-2">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Budgets</p>
-                    <p className="text-[10px] text-gray-400">Switch off budgets that can wait</p>
-                  </div>
-                  <div className="flex flex-col divide-y divide-gray-100">
-                    {reserved.poolItems.map(({ pool, spent: used, left, on }) => {
-                      const cfg = CATEGORY_CONFIG[pool.category]
-                      const over = used > pool.budget_amount
-                      return (
-                        <div key={pool.id} className="flex items-center gap-3 py-2.5">
-                          <div className={`w-7 h-7 rounded-lg ${cfg.bg} flex items-center justify-center shrink-0`}><span className={cfg.text}>{cfg.icon}</span></div>
-                          <div className="flex-1 min-w-0">
-                            <p className={`text-sm truncate ${on ? 'text-gray-900' : 'text-gray-400'}`}>{pool.title}</p>
-                            <p className={`text-[11px] truncate ${over ? 'text-red-500' : 'text-gray-400'}`}>
-                              {over ? `Over budget by ${fmt(used - pool.budget_amount)}` : left === 0 ? 'Fully used' : `${fmt(left)} of ${fmt(pool.budget_amount)} left`}
-                            </p>
-                          </div>
-                          <span className={`text-xs tabular-nums shrink-0 text-right ${on && left > 0 ? 'font-medium text-amber-700' : 'text-gray-300'}`}>
-                            {on ? fmt(left) : 'Flexible'}
-                          </span>
-                          <button role="switch" aria-checked={on} aria-label={`Reserve ${pool.title}`}
-                            title={on ? 'Reserved — click to make flexible' : 'Flexible — click to reserve'}
-                            onClick={() => handleTogglePoolReserved(pool.id, !on)}
-                            className={`relative w-9 h-5 rounded-full shrink-0 transition-colors ${on ? 'bg-black' : 'bg-gray-200'}`}>
-                            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : ''}`} />
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                  {reserved.flexible > 0 && (
-                    <p className="text-[11px] text-gray-400 mt-1">{fmt(reserved.flexible)} of flexible budget is counted as free money.</p>
-                  )}
-                </div>
-              )}
-
-              {/* Bills */}
-              {reserved.billItems.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-100">
-                  <div className="flex items-baseline justify-between gap-2 mb-2">
-                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Bills due this month</p>
-                    <p className="text-[10px] text-gray-400">{fmt(reserved.bills)}</p>
-                  </div>
-                  <div className="flex flex-col divide-y divide-gray-100">
-                    {reserved.billItems.map(({ bill, times, amount, firstDue, overdue }) => {
-                      const cfg = CATEGORY_CONFIG[bill.category]
-                      const due = dueLabel(firstDue, overdue)
-                      const paying = payingBillId === bill.id
-                      return (
-                        <div key={bill.id} className="flex items-center gap-3 py-2.5">
-                          <div className={`w-7 h-7 rounded-lg ${cfg.bg} flex items-center justify-center shrink-0`}><span className={cfg.text}>{cfg.icon}</span></div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm text-gray-900 truncate">
-                              {bill.title}
-                              {times > 1 && <span className="ml-1.5 text-[10px] text-gray-400 font-medium">{times}x</span>}
-                            </p>
-                            <p className={`text-[11px] ${due.cls}`}>{due.text}</p>
-                          </div>
-                          <span className="text-xs font-medium text-amber-700 tabular-nums shrink-0">{fmt(amount)}</span>
-                          <button onClick={() => handlePayBill(bill)} disabled={paying}
-                            className="flex items-center justify-center gap-1 h-7 px-2.5 rounded-full border border-gray-200 text-[11px] font-medium text-gray-700 hover:border-black hover:text-black transition-all shrink-0 disabled:opacity-50">
-                            {paying ? <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" /> : <><Check size={11} /> Pay</>}
-                          </button>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              <p className="text-[10px] text-gray-400 text-center mt-4 leading-relaxed">
-                Use <strong className="font-medium text-gray-500">+ Log</strong> on a budget when you spend from it. Adding it as a normal expense would count it twice.
-              </p>
-            </div>)}
-          </div>
-            )
-          })()}
-
           {/* ── Daily spending ── */}
           {/* Collapsed by default. Content is conditionally rendered rather than
               height-animated: a max-height wrapper needs overflow:hidden, which
@@ -4605,6 +4480,159 @@ export default function Dashboard() {
             </>)}
             </div>)}
           </div>
+
+          {/* ── Reserved money ── */}
+          {/* Money already promised this month (unlogged budgets + unpaid bills),
+              so "free" is what's honestly left. Current month only. */}
+          {reserved.isCurrentMonth && (reserved.poolItems.length > 0 || reserved.billItems.length > 0) && (() => {
+            const short  = freeToSpend < 0
+            const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+            const dueLabel = (iso: string, overdue: boolean) => {
+              if (overdue) return { text: 'Overdue', cls: 'text-red-600' }
+              const d = new Date(`${iso}T00:00:00`)
+              const days = Math.round((d.getTime() - todayStart.getTime()) / 86_400_000)
+              if (days === 0) return { text: 'Due today', cls: 'text-amber-600' }
+              if (days <= 3) return { text: `Due in ${days}d`, cls: 'text-amber-600' }
+              return { text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), cls: 'text-gray-400' }
+            }
+            return (
+          <div className={`${CARD} px-4 py-3 mb-3`}>
+            <button onClick={() => setReservedOpen(v => !v)} aria-expanded={reservedOpen}
+              className="w-full flex items-center justify-between gap-2 text-left">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <HandCoins size={15} className="text-black shrink-0" />
+                <p className="text-xs font-semibold text-black uppercase tracking-wider truncate">Reserved money</p>
+              </div>
+              <div className="flex items-center gap-3 shrink-0 min-w-0">
+                {!reservedOpen && (
+                  <>
+                    <span className="text-xs font-medium text-black truncate">{fmt(reserved.total)} set aside</span>
+                    <span aria-hidden="true" className="hidden sm:inline-block w-px h-4 bg-gray-200" />
+                    <span className={`hidden sm:inline text-[11px] font-medium ${short ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {fmt(Math.abs(freeToSpend))} {short ? 'short' : 'free'}
+                    </span>
+                  </>
+                )}
+                <ChevronRight size={14} className={`text-black transition-transform duration-300 ${reservedOpen ? 'rotate-90' : 'rotate-0'}`} />
+              </div>
+            </button>
+
+            {reservedOpen && (<div className="animate-slide-up mt-4">
+              {/* 1. The answer, first and big */}
+              <div className={`rounded-2xl px-4 py-4 ${short ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                <p className={`text-[11px] font-medium ${short ? 'text-red-700' : 'text-emerald-700'}`}>
+                  {short ? 'You are short this month' : 'Free to spend this month'}
+                </p>
+                <p className={`text-2xl font-semibold tracking-tight tabular-nums mt-0.5 ${short ? 'text-red-700' : 'text-emerald-800'}`}>
+                  {fmt(Math.abs(freeToSpend))}
+                </p>
+                <p className={`text-xs mt-1.5 leading-relaxed ${short ? 'text-red-700/80' : 'text-emerald-800/80'}`}>
+                  {short
+                    ? 'Your planned budgets and bills cost more than the money you have left. Turn off a budget below that can wait.'
+                    : <>That&apos;s about <strong className="font-semibold">{fmt(Math.round(safeToSpendPerDay.perDay))} a day</strong> for the next {safeToSpendPerDay.daysLeft} {safeToSpendPerDay.daysLeft === 1 ? 'day' : 'days'}, after setting money aside for your budgets and bills.</>}
+                </p>
+              </div>
+
+              {/* 2. How we got there — a simple receipt */}
+              <div className="mt-4 rounded-2xl border border-gray-100 px-4 py-1">
+                {[
+                  { label: 'Money left this month', hint: 'income minus what you already spent', value: netSavings, sign: '' },
+                  { label: 'Set aside for budgets', hint: `${reserved.poolCount} ${reserved.poolCount === 1 ? 'budget' : 'budgets'} not fully used yet`, value: reserved.pools, sign: '−' },
+                  { label: 'Bills still to pay', hint: `${reserved.billCount} ${reserved.billCount === 1 ? 'bill' : 'bills'} due this month`, value: reserved.bills, sign: '−' },
+                ].map(row => (
+                  <div key={row.label} className="flex items-center justify-between gap-3 py-2.5 border-b border-gray-100">
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-800">{row.label}</p>
+                      <p className="text-[11px] text-gray-400 truncate">{row.hint}</p>
+                    </div>
+                    <p className={`text-sm tabular-nums shrink-0 ${row.sign ? 'text-gray-600' : 'font-medium text-black'}`}>
+                      {row.sign && <span className="text-gray-400 mr-1">{row.sign}</span>}
+                      {row.value < 0 && !row.sign ? '-' : ''}{fmt(Math.abs(row.value))}
+                    </p>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between gap-3 py-3">
+                  <p className="text-sm font-semibold text-black">{short ? 'Short by' : 'Free to spend'}</p>
+                  <p className={`text-sm font-semibold tabular-nums ${short ? 'text-red-600' : 'text-emerald-600'}`}>{fmt(Math.abs(freeToSpend))}</p>
+                </div>
+              </div>
+
+              {/* 3. Budgets — choose what to set aside */}
+              {reserved.poolItems.length > 0 && (
+                <div className="mt-5">
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Your budgets</p>
+                  <p className="text-[11px] text-gray-500 mt-0.5 mb-2">
+                    Switch <strong className="font-medium text-gray-700">on</strong> to keep the rest of a budget aside. Switch <strong className="font-medium text-gray-700">off</strong> if it can wait — its money counts as free.
+                  </p>
+                  <div className="flex flex-col divide-y divide-gray-100">
+                    {reserved.poolItems.map(({ pool, spent: used, left, on }) => {
+                      const cfg = CATEGORY_CONFIG[pool.category]
+                      const over = used > pool.budget_amount
+                      return (
+                        <div key={pool.id} className="flex items-center gap-3 py-2.5">
+                          <div className={`w-8 h-8 rounded-xl ${cfg.bg} flex items-center justify-center shrink-0 ${on ? '' : 'opacity-50'}`}><span className={cfg.text}>{cfg.icon}</span></div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm truncate ${on ? 'text-gray-900' : 'text-gray-500'}`}>{pool.title}</p>
+                            <p className={`text-[11px] truncate ${over ? 'text-red-500' : 'text-gray-400'}`}>
+                              {over ? `Over budget by ${fmt(used - pool.budget_amount)}`
+                                : left === 0 ? 'Fully used — nothing to set aside'
+                                : on ? `${fmt(left)} set aside`
+                                : `Not set aside · ${fmt(left)} counted as free`}
+                            </p>
+                          </div>
+                          <button role="switch" aria-checked={on} aria-label={`Set aside money for ${pool.title}`}
+                            title={on ? 'Set aside — tap to stop' : 'Not set aside — tap to set aside'}
+                            onClick={() => handleTogglePoolReserved(pool.id, !on)}
+                            className={`relative w-9 h-5 rounded-full shrink-0 transition-colors ${on ? 'bg-black' : 'bg-gray-200'}`}>
+                            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : ''}`} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* 4. Bills still to pay */}
+              {reserved.billItems.length > 0 && (
+                <div className="mt-5">
+                  <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider mb-1">Bills still to pay</p>
+                  <div className="flex flex-col divide-y divide-gray-100">
+                    {reserved.billItems.map(({ bill, times, amount, firstDue, overdue }) => {
+                      const cfg = CATEGORY_CONFIG[bill.category]
+                      const due = dueLabel(firstDue, overdue)
+                      const paying = payingBillId === bill.id
+                      return (
+                        <div key={bill.id} className="flex items-center gap-3 py-2.5">
+                          <div className={`w-8 h-8 rounded-xl ${cfg.bg} flex items-center justify-center shrink-0`}><span className={cfg.text}>{cfg.icon}</span></div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-900 truncate">
+                              {bill.title}
+                              {times > 1 && <span className="ml-1.5 text-[10px] text-gray-400 font-medium">{times}x this month</span>}
+                            </p>
+                            <p className={`text-[11px] ${due.cls}`}>{due.text} · {fmt(amount)}</p>
+                          </div>
+                          <button onClick={() => handlePayBill(bill)} disabled={paying}
+                            className="flex items-center justify-center gap-1 h-8 px-3 rounded-full border border-gray-200 text-xs font-medium text-gray-700 hover:border-black hover:text-black transition-all shrink-0 disabled:opacity-50">
+                            {paying ? <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" /> : <><Check size={12} /> Mark paid</>}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 rounded-xl bg-gray-50 px-3 py-2.5 flex items-start gap-2">
+                <Lightbulb size={13} className="text-gray-400 shrink-0 mt-0.5" />
+                <p className="text-[11px] text-gray-500 leading-relaxed">
+                  When you spend from a budget, use <strong className="font-medium text-gray-700">+ Log</strong> on the Budgets tab. That moves the money from &quot;set aside&quot; to &quot;spent&quot;, so it is never counted twice.
+                </p>
+              </div>
+            </div>)}
+          </div>
+            )
+          })()}
 
           {/* ── Charts ── (each collapsible, closed by default) */}
           {/* Cards keep their natural height — stretching spreads the month rows apart */}
@@ -4709,7 +4737,7 @@ export default function Dashboard() {
                     {/* Donut ring, centered */}
                     <div className="relative shrink-0 animate-pop-in">
                       <svg width="128" height="128" viewBox="0 0 36 36" className="-rotate-90">
-                        <circle cx="18" cy="18" r="15.915" fill="none" stroke="#f3f4f6" strokeWidth="3.6" />
+                        <circle cx="18" cy="18" r="15.915" fill="none" style={{ stroke: 'var(--ef-track)' }} strokeWidth="3.6" />
                         {slices.map((s, i) => {
                           const dash = s.pct
                           const active = catSliceSelected === i
@@ -5357,7 +5385,7 @@ export default function Dashboard() {
       </div>
       )}
 
-      {showSettings && <SettingsModal value={viewMode} onChange={changeView} onClose={() => setShowSettings(false)} />}
+      {showSettings && <SettingsModal value={viewMode} onChange={changeView} theme={theme} onThemeChange={changeTheme} onClose={() => setShowSettings(false)} />}
 
       {/* Modals */}
       {showAddExpense  && <AddExpenseModal  onClose={() => setShowAddExpense(false)}  onSave={handleAddExpense}

@@ -24,3 +24,219 @@ body {
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
+
+/* ─── ExpenseFlow theme tokens ─────────────────────────────────────────────
+   Light values are the defaults. Dark mode is applied by adding the
+   `ef-dark` class to <html> (dashboard only, toggled in Settings → Appearance). */
+:root {
+  --ef-page: #fafafa;
+  --ef-surface: #ffffff;
+  --ef-ink: #111110;
+  --ef-line: #eceef0;
+  --ef-track: #f1f1ef;
+  --heat-0: #ebedf0;
+  --heat-1: #9be9a8;
+  --heat-2: #40c463;
+  --heat-3: #30a14e;
+  --heat-4: #216e39;
+  --heat-future: #f7f8f9;
+  --heat-ink: #0f3d1f;
+}
+
+/* Tailwind v4 colours every utility through these variables, so remapping
+   them flips the whole dashboard (bg-white, text-black, gray-*, tints). */
+html.ef-dark {
+  color-scheme: dark;
+  --ef-page: #0b0b0c;
+  --ef-surface: #141416;
+  --ef-ink: #f5f5f6;
+  --ef-line: #2a2a2f;
+  --ef-track: #26262b;
+  --heat-0: #1f2328;
+  --heat-1: #0e4429;
+  --heat-2: #006d32;
+  --heat-3: #26a641;
+  --heat-4: #39d353;
+  --heat-future: #17171a;
+  --heat-ink: #d7f5df;
+  --color-white: #141416;
+  --color-black: #f5f5f6;
+  --color-gray-50: #1a1a1d;
+  --color-gray-100: #222226;
+  --color-gray-200: #2c2c31;
+  --color-gray-300: #4a4a52;
+  --color-gray-400: #77777f;
+  --color-gray-500: #9a9aa3;
+  --color-gray-600: #b3b3bb;
+  --color-gray-700: #cfcfd5;
+  --color-gray-800: #e2e2e6;
+  --color-gray-900: #f0f0f2;
+  --color-gray-950: #fafafa;
+  --color-red-50: #2e1a1c;
+  --color-red-100: #3b1d1e;
+  --color-red-200: #512123;
+  --color-red-300: #702829;
+  --color-red-700: #f37373;
+  --color-red-800: #f69898;
+  --color-red-900: #f9b4b4;
+  --color-red-950: #fac7c7;
+  --color-orange-50: #2f1f16;
+  --color-orange-100: #3d2516;
+  --color-orange-200: #542f16;
+  --color-orange-300: #743c16;
+  --color-orange-700: #fa9650;
+  --color-orange-800: #fcb27f;
+  --color-orange-900: #fdc7a2;
+  --color-orange-950: #fdd5b9;
+  --color-amber-50: #2f2515;
+  --color-amber-100: #3c2d14;
+  --color-amber-200: #533b13;
+  --color-amber-300: #724e11;
+  --color-amber-700: #f8b648;
+  --color-amber-800: #faca79;
+  --color-amber-900: #fbd89d;
+  --color-amber-950: #fce2b6;
+  --color-yellow-50: #2e2714;
+  --color-yellow-100: #3b3113;
+  --color-yellow-200: #504112;
+  --color-yellow-300: #6e5710;
+  --color-yellow-700: #efc646;
+  --color-yellow-800: #f3d577;
+  --color-yellow-900: #f7e19c;
+  --color-yellow-950: #f9e8b5;
+  --color-lime-50: #212a16;
+  --color-lime-100: #283516;
+  --color-lime-200: #334816;
+  --color-lime-300: #436116;
+  --color-lime-700: #a3d950;
+  --color-lime-800: #bbe37f;
+  --color-lime-900: #ceeba2;
+  --color-lime-950: #daf0b9;
+  --color-green-50: #16291f;
+  --color-green-100: #173423;
+  --color-green-200: #18462a;
+  --color-green-300: #1a5e34;
+  --color-green-700: #59d486;
+  --color-green-800: #85dfa6;
+  --color-green-900: #a7e8bf;
+  --color-green-950: #bdeecf;
+  --color-emerald-50: #142823;
+  --color-emerald-100: #133229;
+  --color-emerald-200: #134234;
+  --color-emerald-300: #125943;
+  --color-emerald-700: #4ccaa0;
+  --color-emerald-800: #7cd8ba;
+  --color-emerald-900: #9fe3cd;
+  --color-emerald-950: #b7ead9;
+  --color-teal-50: #142827;
+  --color-teal-100: #143230;
+  --color-teal-200: #14423e;
+  --color-teal-300: #145952;
+  --color-teal-700: #4fcabc;
+  --color-teal-800: #7ed8ce;
+  --color-teal-900: #a1e3db;
+  --color-teal-950: #b8eae4;
+  --color-cyan-50: #12272d;
+  --color-cyan-100: #113138;
+  --color-cyan-200: #10414b;
+  --color-cyan-300: #0e5866;
+  --color-cyan-700: #44c8df;
+  --color-cyan-800: #76d7e7;
+  --color-cyan-900: #9be2ee;
+  --color-cyan-950: #b4e9f2;
+  --color-sky-50: #13252f;
+  --color-sky-100: #132e3c;
+  --color-sky-200: #123d51;
+  --color-sky-300: #11516f;
+  --color-sky-700: #4abcee;
+  --color-sky-800: #7acef3;
+  --color-sky-900: #9fdbf6;
+  --color-sky-950: #b7e4f8;
+  --color-blue-50: #192131;
+  --color-blue-100: #1b283e;
+  --color-blue-200: #1f3355;
+  --color-blue-300: #244274;
+  --color-blue-700: #6ca1f8;
+  --color-blue-800: #93bafa;
+  --color-blue-900: #b1cdfb;
+  --color-blue-950: #c4dafc;
+  --color-indigo-50: #1d1e30;
+  --color-indigo-100: #22233d;
+  --color-indigo-200: #2a2b53;
+  --color-indigo-300: #353672;
+  --color-indigo-700: #8a8cf4;
+  --color-indigo-800: #a9abf7;
+  --color-indigo-900: #c1c2f9;
+  --color-indigo-950: #d0d1fb;
+  --color-violet-50: #221d31;
+  --color-violet-100: #29213e;
+  --color-violet-200: #352855;
+  --color-violet-300: #463274;
+  --color-violet-700: #a885f8;
+  --color-violet-800: #bfa5fa;
+  --color-violet-900: #d1befb;
+  --color-violet-950: #dccefc;
+  --color-purple-50: #261c31;
+  --color-purple-100: #2f203e;
+  --color-purple-200: #3d2655;
+  --color-purple-300: #522f74;
+  --color-purple-700: #be80f9;
+  --color-purple-800: #cfa2fb;
+  --color-purple-900: #dcbbfc;
+  --color-purple-950: #e5ccfd;
+  --color-fuchsia-50: #2c1a30;
+  --color-fuchsia-100: #371d3d;
+  --color-fuchsia-200: #4b2253;
+  --color-fuchsia-300: #672971;
+  --color-fuchsia-700: #e274f3;
+  --color-fuchsia-800: #ea99f6;
+  --color-fuchsia-900: #f0b5f9;
+  --color-fuchsia-950: #f4c8fa;
+  --color-pink-50: #2e1a26;
+  --color-pink-100: #3b1d2e;
+  --color-pink-200: #50233b;
+  --color-pink-300: #6f2a4d;
+  --color-pink-700: #f176b2;
+  --color-pink-800: #f59ac7;
+  --color-pink-900: #f7b6d6;
+  --color-pink-950: #f9c8e0;
+  --color-rose-50: #2f191f;
+  --color-rose-100: #3c1c23;
+  --color-rose-200: #53202a;
+  --color-rose-300: #722634;
+  --color-rose-700: #f76f86;
+  --color-rose-800: #f995a6;
+  --color-rose-900: #fbb2bf;
+  --color-rose-950: #fcc5cf;
+  --color-slate-50: #1e2024;
+  --color-slate-100: #22252b;
+  --color-slate-200: #2a2f37;
+  --color-slate-300: #363c47;
+  --color-slate-700: #8b97a8;
+  --color-slate-800: #aab3bf;
+  --color-slate-900: #c1c7d1;
+  --color-slate-950: #d0d5dc;
+}
+
+/* Islands that are dark in BOTH themes (e.g. the Total balance card) keep
+   the original palette so their white text stays white. */
+html.ef-dark .ef-keep {
+  --color-white: #ffffff;
+  --color-black: #000000;
+}
+
+/* Logo: black version in light mode, white version (logo2.png) in dark mode */
+.ef-logo-dark { display: none; }
+html.ef-dark .ef-logo-light { display: none; }
+html.ef-dark .ef-logo-dark { display: block; }
+
+/* Modal backdrops: `bg-black/30` would turn light after the swap */
+html.ef-dark .bg-black\/30,
+html.ef-dark .bg-black\/40 { background-color: rgb(0 0 0 / 0.62); }
+
+/* "This month" card gets the warm amber glass look in dark mode */
+html.ef-dark .ef-month-card {
+  background-image: linear-gradient(135deg, #2b1e0c 0%, #1a140c 55%, #141210 100%) !important;
+  border-color: #4d3714 !important;
+}
+html.ef-dark .ef-month-card .ef-month-glow { background-color: rgb(245 158 11 / 0.07) !important; }

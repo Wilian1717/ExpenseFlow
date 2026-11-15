@@ -188,7 +188,7 @@ function Donut({ categoryTotals, total }: {
     <div className="flex items-center gap-5">
       <div className="relative shrink-0 animate-pop-in">
         <svg width="140" height="140" viewBox="0 0 36 36" className="-rotate-90">
-          <circle cx="18" cy="18" r="15.915" fill="none" stroke="#f3f4f6" strokeWidth="3.6" />
+          <circle cx="18" cy="18" r="15.915" fill="none" style={{ stroke: 'var(--ef-track)' }} strokeWidth="3.6" />
           {slices.map((s, i) => {
             const dash = s.pct
             const active = hover === i
@@ -936,9 +936,9 @@ export default function ExpertView(p: ExpertViewProps) {
   )
 
   return (
-    <div className="min-h-screen bg-[#fafafa] lg:flex">
+    <div className="min-h-screen bg-[var(--ef-page)] lg:flex">
       {/* ── Sidebar (desktop) ── */}
-      <aside className="hidden lg:flex flex-col w-60 shrink-0 bg-[#0a0a0a] sticky top-0 h-screen">
+      <aside className="ef-keep hidden lg:flex flex-col w-60 shrink-0 bg-[#0a0a0a] sticky top-0 h-screen">
         <div className="px-5 pt-6 pb-4">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl overflow-hidden shrink-0"><img src="/logo2.png" alt="logo" className="w-full h-full object-cover" /></div>
@@ -955,7 +955,7 @@ export default function ExpertView(p: ExpertViewProps) {
       {drawerOpen && (
         <div className="lg:hidden fixed inset-0 z-[250] flex" onClick={() => setDrawerOpen(false)}>
           <div className="absolute inset-0 bg-black/40" />
-          <div className="relative bg-[#0a0a0a] w-64 max-w-[80%] h-full flex flex-col shadow-xl animate-slide-up" onClick={e => e.stopPropagation()}>
+          <div className="ef-keep relative bg-[#0a0a0a] w-64 max-w-[80%] h-full flex flex-col shadow-xl animate-slide-up" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-6 pb-4">
               <div className="flex items-center gap-2.5">
                 <div className="w-9 h-9 rounded-xl overflow-hidden shrink-0"><img src="/logo2.png" alt="logo" className="w-full h-full object-cover" /></div>
