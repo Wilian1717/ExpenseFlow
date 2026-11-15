@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useMemo, useRef } from 'react'
+import { useEffect, useState, useMemo, useRef, useId } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { useRouter } from 'next/navigation'
 import {
@@ -12,7 +12,7 @@ import {
   User, Home, Zap, Menu, ChevronLeft, ChevronRight, History, CreditCard,
   MoreVertical, Undo2, Download, SlidersHorizontal, Tv, Eye, EyeOff, Calculator,
   Users, UserPlus, Settings, Bell, LayoutGrid, Lock, LockOpen, CalendarDays,
-  BarChart3, PieChart, ShieldCheck, ArrowDown, ArrowUp, FileText, Tag
+  BarChart3, PieChart, ShieldCheck, Gauge, Copy, Vault, ArrowDown, ArrowUp, FileText, Tag
 } from 'lucide-react'
 
 import {
@@ -22,7 +22,7 @@ import {
   type SplitBill, type SplitBillParticipant, type SplitBillWithStats, type Debt, type DebtPayment, type DebtWithStats,
   type DaySpend, type DailySpendData, type DowStat, type DailyRecords,
   CATEGORY_CONFIG, CATEGORY_COLOR, INCOME_CONFIG, FREQ_LABELS, MONTHS, MONTHS_SHORT,
-  WEEKDAY_LABELS, HEAT_COLORS, SpendingHeatmap, WeekdayBars, SpendingPaceChart, heatLevels,
+  WEEKDAY_LABELS, HEAT_COLORS, SpendingHeatmap, WeekdayBars, SpendingPaceChart,
   fmtFull, fmt, fmtShort, groupId, parseRp, inMonth, currentMonth, daysLeftInMonth,
   getMonthLabelFull, getMonthLabelShort, nextDueDate, localISOString, dateWithCurrentTime,
   exportCSV, scrollHorizontally,
@@ -455,9 +455,15 @@ function AddBillModal({ onClose, onSave }: {
 }
 
 // ─── Add Expense Modal ────────────────────────────────────────────────────────
-function AddExpenseModal({ onClose, onSave }: {
+function AddExpenseModal({ onClose, onSave, onSaveBatch, pools, pastExpenses, poolEntries }: {
   onClose: () => void; onSave: (data: { title: string; amount: number; category: Category; note: string; date: string }) => Promise<void>
+  onSaveBatch: (items: BatchItem[]) => Promise<BatchResult>
+  pools: ExpensePool[]; pastExpenses: Expense[]; poolEntries: ExpensePoolEntry[]
 }) {
+  const [mode, setModeState] = useState<'single' | 'multiple'>(() => {
+    try { return localStorage.getItem(ADD_MODE_KEY) === 'multiple' ? 'multiple' : 'single' } catch { return 'single' }
+  })
+  const setMode = (m: 'single' | 'multiple') => { setModeState(m); try { localStorage.setItem(ADD_MODE_KEY, m) } catch { /* ignore */ } }
   const [title, setTitle]       = useState('')
   const [amount, setAmount]     = useState('')
   const [category, setCategory] = useState<Category>('food')
@@ -470,6 +476,11 @@ function AddExpenseModal({ onClose, onSave }: {
     setSaving(true); await onSave({ title: title.trim(), amount: parseFloat(amount), category, note: note.trim(), date }); setSaving(false)
   }
 
+  if (mode === 'multiple') return (
+    <BatchExpenseEditor onClose={onClose} onSave={onSaveBatch} pools={pools} pastExpenses={pastExpenses} poolEntries={poolEntries}
+      modeSwitch={<ExpenseModeSwitch mode={mode} onChange={setMode} />} />
+  )
+
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0">
       <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-xl max-h-[90vh] overflow-y-auto animate-slide-up" onKeyDown={e => e.key === 'Escape' && onClose()}>
@@ -477,6 +488,7 @@ function AddExpenseModal({ onClose, onSave }: {
           <div><h2 className="text-base font-medium text-black">Add expense</h2><p className="text-xs text-gray-400 mt-0.5">Record a new expense</p></div>
           <button onClick={onClose} className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-100 text-gray-400 hover:text-black transition-all"><X size={16} /></button>
         </div>
+        <ExpenseModeSwitch mode={mode} onChange={setMode} />
         <div className="mb-4">
           <label className="text-xs text-gray-400 mb-2 block">Category</label>
           <div className="grid grid-cols-4 gap-1.5">
@@ -524,6 +536,345 @@ function AddExpenseModal({ onClose, onSave }: {
             className="flex-1 bg-black text-white rounded-lg py-2.5 text-sm font-medium hover:bg-gray-800 active:scale-[.98] transition-all disabled:opacity-50 flex items-center justify-center gap-2">
             {saving ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <><Plus size={14} /> Add</>}
           </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Add Expense: Single | Multiple ──────────────────────────────────────────
+type BatchItem = { title: string; amount: number; category: Category; date: string; poolId: string }
+type BatchResult = { ok: boolean; message?: string; warning?: string }
+type BatchRow = { id: string; date: string; title: string; category: Category; amount: string; poolId: string }
+
+const ADD_MODE_KEY   = 'ef-add-expense-mode'
+const BATCH_DRAFT_KEY = 'ef-batch-expense-draft'
+const newRowId = () => Math.random().toString(36).slice(2, 10)
+const emptyRow = (date: string): BatchRow => ({ id: newRowId(), date, title: '', category: 'food', amount: '', poolId: '' })
+
+function ExpenseModeSwitch({ mode, onChange }: { mode: 'single' | 'multiple'; onChange: (m: 'single' | 'multiple') => void }) {
+  return (
+    <div className="grid grid-cols-2 bg-gray-100 rounded-full p-1 mb-4" role="tablist" aria-label="Entry mode">
+      {(['single', 'multiple'] as const).map(m => (
+        <button key={m} type="button" role="tab" aria-selected={mode === m} onClick={() => onChange(m)}
+          className={`py-1.5 rounded-full text-xs font-semibold transition-all ${mode === m ? 'bg-black text-white shadow-sm' : 'text-gray-500 hover:text-black'}`}>
+          {m === 'single' ? 'Single' : 'Multiple'}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function BatchExpenseEditor({ onClose, onSave, pools, pastExpenses, poolEntries, modeSwitch }: {
+  onClose: () => void
+  onSave: (items: BatchItem[]) => Promise<BatchResult>
+  pools: ExpensePool[]
+  pastExpenses: Expense[]
+  poolEntries: ExpensePoolEntry[]
+  modeSwitch: React.ReactNode
+}) {
+  const today = localISOString().slice(0, 10)
+  const [rows, setRows] = useState<BatchRow[]>(() => {
+    try {
+      const raw = localStorage.getItem(BATCH_DRAFT_KEY)
+      const parsed = raw ? JSON.parse(raw) : null
+      if (Array.isArray(parsed) && parsed.length > 0 && parsed.every(r => r && typeof r.id === 'string' && typeof r.date === 'string'))
+        return parsed as BatchRow[]
+    } catch { /* storage unavailable — start fresh */ }
+    return [emptyRow(today), emptyRow(today), emptyRow(today)]
+  })
+  const [activeId, setActiveId] = useState<string>(() => rows[0]?.id ?? '')
+  const [showErrors, setShowErrors] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const [focusId, setFocusId] = useState<string | null>(null)
+  const descRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const listId = useId()
+
+  // Keep an unsent draft so closing by accident never loses the week's entries
+  useEffect(() => {
+    try {
+      const hasContent = rows.some(r => r.title.trim() || r.amount)
+      if (hasContent) localStorage.setItem(BATCH_DRAFT_KEY, JSON.stringify(rows))
+      else localStorage.removeItem(BATCH_DRAFT_KEY)
+    } catch { /* ignore */ }
+  }, [rows])
+
+  useEffect(() => {
+    if (!focusId) return
+    descRefs.current[focusId]?.focus()
+    setFocusId(null)
+  }, [focusId, rows])
+
+  // Smart suggestions: newest use of each title → its category and (if any) budget
+  const suggestions = useMemo(() => {
+    const poolByExpense = new Map<string, string>()
+    poolEntries.forEach(e => { if (e.expense_id) poolByExpense.set(e.expense_id, e.pool_id) })
+    const livePools = new Set(pools.map(p => p.id))
+    const map = new Map<string, { title: string; category: Category; poolId: string }>()
+    const sorted = [...pastExpenses].sort((a, b) => b.created_at.localeCompare(a.created_at))
+    sorted.forEach(e => {
+      const key = e.title.trim().toLowerCase()
+      if (!key || map.has(key)) return
+      const pid = poolByExpense.get(e.id) ?? ''
+      map.set(key, { title: e.title.trim(), category: e.category, poolId: livePools.has(pid) ? pid : '' })
+    })
+    return map
+  }, [pastExpenses, poolEntries, pools])
+  const suggestionList = useMemo(() => Array.from(suggestions.values()).slice(0, 200), [suggestions])
+
+  // This week's days (Mon–Sun), for one-tap dates
+  const weekDays = useMemo(() => {
+    const now = new Date()
+    const monday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7))
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() + i)
+      const iso = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+      return { iso, label: WEEKDAY_LABELS[i], day: d.getDate(), future: iso > today }
+    })
+  }, [today])
+
+  const update = (id: string, patch: Partial<BatchRow>) => setRows(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r))
+  // Side effects (active row / focus) stay outside the state updater so React
+  // StrictMode's double-invoked updaters can't desync them.
+  const addRow = (afterId?: string) => {
+    const idx = afterId ? rows.findIndex(r => r.id === afterId) : rows.length - 1
+    const base = rows[idx] ?? rows[rows.length - 1]
+    const row = emptyRow(base?.date ?? today)
+    const next = [...rows]; next.splice(idx + 1, 0, row)
+    setRows(next); setActiveId(row.id); setFocusId(row.id)
+  }
+  const duplicateRow = (id: string) => {
+    const idx = rows.findIndex(r => r.id === id); if (idx < 0) return
+    const copy = { ...rows[idx], id: newRowId() }
+    const next = [...rows]; next.splice(idx + 1, 0, copy)
+    setRows(next); setActiveId(copy.id)
+  }
+  const removeRow = (id: string) => {
+    if (rows.length === 1) { const fresh = emptyRow(rows[0].date); setRows([fresh]); setActiveId(fresh.id); return }
+    const idx = rows.findIndex(r => r.id === id)
+    const next = rows.filter(r => r.id !== id)
+    const target = next[Math.max(0, idx - 1)]
+    setRows(next)
+    if (target) { setActiveId(target.id); setFocusId(target.id) }
+  }
+  const onTitle = (row: BatchRow, value: string) => {
+    const hit = suggestions.get(value.trim().toLowerCase())
+    update(row.id, hit ? { title: value, category: hit.category, poolId: row.poolId || hit.poolId } : { title: value })
+  }
+  const clearAll = () => { const fresh = [emptyRow(today), emptyRow(today), emptyRow(today)]; setRows(fresh); setActiveId(fresh[0].id); setShowErrors(false); setError(null) }
+
+  const isEmpty   = (r: BatchRow) => !r.title.trim() && !r.amount
+  const isValid   = (r: BatchRow) => !!r.title.trim() && parseRp(r.amount) > 0 && !!r.date
+  const valid     = rows.filter(isValid)
+  const partial   = rows.filter(r => !isEmpty(r) && !isValid(r))
+  const total     = valid.reduce((s, r) => s + parseRp(r.amount), 0)
+  const byCat = useMemo(() => {
+    const m = new Map<Category, number>()
+    rows.filter(isValid).forEach(r => m.set(r.category, (m.get(r.category) ?? 0) + parseRp(r.amount)))
+    return Array.from(m.entries()).sort((a, b) => b[1] - a[1]).slice(0, 3)
+  }, [rows])
+
+  const handleSave = async () => {
+    setError(null)
+    if (partial.length > 0) {
+      setShowErrors(true)
+      setError(`${partial.length} ${partial.length === 1 ? 'row is' : 'rows are'} missing a description or amount.`)
+      return
+    }
+    if (valid.length === 0) return
+    setSaving(true)
+    const res = await onSave(valid.map(r => ({ title: r.title.trim(), amount: parseRp(r.amount), category: r.category, date: r.date, poolId: r.poolId })))
+    setSaving(false)
+    if (!res.ok) { setError(res.message ?? 'Could not save. Please try again.'); return }
+    try { localStorage.removeItem(BATCH_DRAFT_KEY) } catch { /* ignore */ }
+    if (res.warning) { clearAll(); setNotice(res.warning); return }
+    onClose()
+  }
+
+  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` })()
+  const dateLabel = (iso: string) => {
+    if (!iso) return 'Pick date'
+    if (iso === today) return 'Today'
+    if (iso === yesterday) return 'Yesterday'
+    return new Date(`${iso}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' })
+  }
+  // How many filled rows sit on each day — shown as dots on the week strip
+  const rowsPerDay = rows.reduce<Record<string, number>>((m, r) => { if (!isEmpty(r)) m[r.date] = (m[r.date] ?? 0) + 1; return m }, {})
+  const openPicker = (e: React.MouseEvent<HTMLInputElement>) => { try { e.currentTarget.showPicker?.() } catch { /* not supported */ } }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/30 sm:px-4">
+      <div className="bg-white w-full sm:max-w-2xl rounded-t-3xl sm:rounded-2xl shadow-xl h-[92vh] sm:h-auto sm:max-h-[88vh] flex flex-col animate-slide-up"
+        onKeyDown={e => e.key === 'Escape' && onClose()}>
+        {/* Grabber (mobile sheet) */}
+        <div className="sm:hidden flex justify-center pt-2.5"><span className="w-10 h-1 rounded-full bg-gray-200" /></div>
+
+        {/* Header */}
+        <div className="px-5 pt-3 sm:pt-5">
+          <div className="flex justify-between items-start mb-4">
+            <div>
+              <h2 className="text-base font-semibold text-black tracking-tight">Add expenses</h2>
+              <p className="text-xs text-gray-400 mt-0.5">Log the whole week in one go</p>
+            </div>
+            <button onClick={onClose} title="Close" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-black transition-all"><X size={16} /></button>
+          </div>
+          <div className="sm:max-w-[260px]">{modeSwitch}</div>
+
+          {/* This week — sets the date of the selected row */}
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">This week</p>
+            <p className="text-[10px] text-gray-400">Tap a day for the selected row</p>
+          </div>
+          <div className="grid grid-cols-7 gap-1 sm:gap-1.5 pb-4 border-b border-gray-100">
+            {weekDays.map(d => {
+              const activeRow = rows.find(r => r.id === activeId)
+              const selected = activeRow?.date === d.iso
+              const count = rowsPerDay[d.iso] ?? 0
+              return (
+                <button key={d.iso} type="button" disabled={d.future || !activeRow}
+                  onClick={() => activeRow && update(activeRow.id, { date: d.iso })}
+                  className={`relative flex flex-col items-center gap-0.5 py-2 rounded-2xl transition-all disabled:opacity-25 disabled:cursor-not-allowed ${
+                    selected ? 'bg-black text-white shadow-sm' : 'bg-gray-50 text-gray-700 hover:bg-gray-100'}`}>
+                  <span className={`text-[10px] ${selected ? 'text-white/60' : 'text-gray-400'}`}>{d.label}</span>
+                  <span className="text-sm font-semibold tabular-nums leading-none">{d.day}</span>
+                  <span className="flex gap-0.5 h-1 mt-0.5">
+                    {Array.from({ length: Math.min(count, 3) }).map((_, i) => (
+                      <span key={i} className={`w-1 h-1 rounded-full ${selected ? 'bg-white' : 'bg-emerald-500'}`} />
+                    ))}
+                  </span>
+                  {d.iso === today && !selected && <span className="absolute top-1 right-1.5 w-1 h-1 rounded-full bg-black" aria-label="Today" />}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+
+        {/* Rows */}
+        <div className="px-3 sm:px-5 overflow-y-auto flex-1 min-h-0 pt-3">
+          <datalist id={listId}>
+            {suggestionList.map(s => <option key={s.title} value={s.title} />)}
+          </datalist>
+          <div className="flex flex-col gap-2">
+            {rows.map((r, idx) => {
+              const cfg = CATEGORY_CONFIG[r.category]
+              const bad = showErrors && !isEmpty(r) && !isValid(r)
+              const active = r.id === activeId
+              const suggested = pools.filter(p => p.category === r.category)
+              const others = pools.filter(p => p.category !== r.category)
+              const linked = pools.find(p => p.id === r.poolId)
+              return (
+                <div key={r.id} onFocusCapture={() => setActiveId(r.id)} onClick={() => setActiveId(r.id)}
+                  className={`rounded-2xl border px-3.5 py-3 transition-all ${
+                    bad ? 'border-red-200 bg-red-50/40'
+                    : active ? 'border-gray-200 bg-white shadow-[0_6px_20px_-12px_rgba(16,24,40,0.25)]'
+                    : 'border-gray-100 bg-gray-50/50 hover:bg-gray-50'}`}>
+                  {/* Line 1 — what + how much */}
+                  <div className="flex items-center gap-3">
+                    <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${cfg.bg} ${cfg.text}`}>{cfg.icon}</span>
+                    <input ref={el => { descRefs.current[r.id] = el }} value={r.title} list={listId}
+                      placeholder={bad && !r.title.trim() ? 'Add a description' : 'What did you spend on?'}
+                      aria-label={`Row ${idx + 1} description`}
+                      onChange={e => onTitle(r, e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Backspace' && isEmpty(r) && rows.length > 1) { e.preventDefault(); removeRow(r.id) } }}
+                      className={`flex-1 min-w-0 bg-transparent text-sm font-medium text-black focus:outline-none ${bad && !r.title.trim() ? 'placeholder:text-red-400' : 'placeholder:text-gray-400'}`} />
+                    <div className="flex items-baseline gap-1 shrink-0">
+                      <span className="text-[11px] text-gray-400">Rp</span>
+                      <input type="text" inputMode="numeric" value={r.amount} placeholder="0" aria-label={`Row ${idx + 1} amount`}
+                        onChange={e => { const n = parseRp(e.target.value); update(r.id, { amount: n ? groupId(n) : '' }) }}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addRow(r.id) } }}
+                        className={`w-24 sm:w-28 bg-transparent text-right text-base font-semibold tabular-nums text-black focus:outline-none ${bad && parseRp(r.amount) <= 0 ? 'placeholder:text-red-400' : 'placeholder:text-gray-300'}`} />
+                    </div>
+                  </div>
+
+                  {/* Line 2 — date, category, budget, actions */}
+                  <div className="flex items-center gap-1.5 mt-2.5 pl-12 flex-wrap">
+                    {/* Date pill */}
+                    <label className="relative inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full bg-white border border-gray-200 text-[11px] font-medium text-gray-700 cursor-pointer hover:border-gray-400 transition-colors">
+                      <Calendar size={11} className="text-gray-400" />
+                      {dateLabel(r.date)}
+                      <input type="date" value={r.date} max={today} aria-label={`Row ${idx + 1} date`}
+                        onClick={openPicker} onChange={e => e.target.value && update(r.id, { date: e.target.value })}
+                        className="absolute inset-0 opacity-0 cursor-pointer w-full" />
+                    </label>
+                    {/* Category pill */}
+                    <label className={`relative inline-flex items-center gap-1 h-7 pl-2.5 pr-2 rounded-full text-[11px] font-medium cursor-pointer ${cfg.bg} ${cfg.text}`}>
+                      {CATEGORY_CONFIG[r.category].label.split(' ')[0]}
+                      <ChevronDown size={11} className="opacity-60" />
+                      <select value={r.category} aria-label={`Row ${idx + 1} category`}
+                        onChange={e => update(r.id, { category: e.target.value as Category })}
+                        className="absolute inset-0 opacity-0 cursor-pointer w-full">
+                        {(Object.keys(CATEGORY_CONFIG) as Category[]).map(c => <option key={c} value={c}>{CATEGORY_CONFIG[c].label}</option>)}
+                      </select>
+                    </label>
+                    {/* Budget pill */}
+                    {pools.length > 0 && (
+                      <label className={`relative inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-medium cursor-pointer max-w-[170px] transition-colors ${
+                        linked ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'border border-dashed border-gray-300 text-gray-500 hover:border-gray-400'}`}>
+                        {linked ? <Lock size={10} className="shrink-0" /> : <Plus size={11} className="shrink-0" />}
+                        <span className="truncate">{linked ? linked.title : 'Budget'}</span>
+                        <select value={r.poolId} aria-label={`Row ${idx + 1} budget`}
+                          onChange={e => update(r.id, { poolId: e.target.value })}
+                          className="absolute inset-0 opacity-0 cursor-pointer w-full">
+                          <option value="">No budget</option>
+                          {suggested.map(p => <option key={p.id} value={p.id}>{p.title} (suggested)</option>)}
+                          {others.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+                        </select>
+                      </label>
+                    )}
+                    <div className="ml-auto flex items-center">
+                      <button type="button" onClick={e => { e.stopPropagation(); duplicateRow(r.id) }} title="Duplicate row"
+                        className="w-7 h-7 flex items-center justify-center rounded-full text-gray-400 hover:text-black hover:bg-gray-100 transition-all"><Copy size={12} /></button>
+                      <button type="button" onClick={e => { e.stopPropagation(); removeRow(r.id) }} title="Remove row"
+                        className="w-7 h-7 flex items-center justify-center rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 transition-all"><Trash2 size={12} /></button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+
+          <div className="flex items-center justify-between gap-2 py-3">
+            <button type="button" onClick={() => addRow()}
+              className="flex items-center gap-1.5 h-9 px-4 rounded-full bg-gray-100 text-xs font-semibold text-black hover:bg-gray-200 transition-all">
+              <Plus size={14} /> Add row
+            </button>
+            <div className="flex items-center gap-3">
+              <span className="hidden sm:inline text-[10px] text-gray-400">Enter in amount = new row</span>
+              <button type="button" onClick={clearAll} className="text-[11px] text-gray-400 hover:text-red-500 transition-colors">Clear all</button>
+            </div>
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="border-t border-gray-100 px-5 pt-3 pb-4 sm:pb-3.5 bg-white rounded-b-2xl">
+          {error && <p className="text-xs text-red-600 mb-2.5 flex items-center gap-1.5"><AlertTriangle size={12} /> {error}</p>}
+          {notice && <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mb-2.5">{notice}</p>}
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider font-semibold">{valid.length} {valid.length === 1 ? 'expense' : 'expenses'}</p>
+              <p className="text-lg font-semibold text-black tabular-nums leading-tight truncate">{fmt(total)}</p>
+              {byCat.length > 0 && (
+                <div className="hidden sm:flex items-center gap-1.5 mt-1">
+                  {byCat.map(([c, v]) => (
+                    <span key={c} className={`text-[10px] px-2 py-0.5 rounded-full ${CATEGORY_CONFIG[c].bg} ${CATEGORY_CONFIG[c].text}`}>
+                      {CATEGORY_CONFIG[c].label.split(' ')[0]} {fmt(v)}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <button onClick={onClose} className="hidden sm:inline-flex h-10 px-4 items-center rounded-full border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition">{notice ? 'Done' : 'Cancel'}</button>
+              <button onClick={handleSave} disabled={saving || valid.length === 0}
+                className="h-10 px-5 rounded-full bg-black text-white text-sm font-semibold hover:bg-gray-800 active:scale-[.98] transition-all disabled:opacity-40 flex items-center justify-center gap-2">
+                {saving
+                  ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  : <><Check size={15} /> Save {valid.length > 0 ? valid.length : ''}</>}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </div>
@@ -762,8 +1113,9 @@ function DeleteConfirm({ title, onConfirm, onCancel, deleting }: {
 // ─── Add Pool Modal ───────────────────────────────────────────────────────────
 function AddPoolModal({ onClose, onSave }: {
   onClose: () => void
-  onSave: (data: { title: string; budget_amount: number; category: Category; note: string }) => Promise<void>
+  onSave: (data: { title: string; budget_amount: number; category: Category; note: string; is_reserved: boolean }) => Promise<void>
 }) {
+  const [isReserved, setIsReserved] = useState(true)
   const [title, setTitle]         = useState('')
   const [amount, setAmount]       = useState('')
   const [category, setCategory]   = useState<Category>('transport')
@@ -772,7 +1124,7 @@ function AddPoolModal({ onClose, onSave }: {
 
   const handleSave = async () => {
     if (!title.trim() || !amount || parseFloat(amount) <= 0) return
-    setSaving(true); await onSave({ title: title.trim(), budget_amount: parseFloat(amount), category, note: note.trim() }); setSaving(false)
+    setSaving(true); await onSave({ title: title.trim(), budget_amount: parseFloat(amount), category, note: note.trim(), is_reserved: isReserved }); setSaving(false)
   }
 
   return (
@@ -817,6 +1169,16 @@ function AddPoolModal({ onClose, onSave }: {
             <input value={note} onChange={e => setNote(e.target.value)} placeholder="Add a note..."
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-black focus:outline-none focus:border-black transition" />
           </div>
+          <button type="button" role="switch" aria-checked={isReserved} onClick={() => setIsReserved(v => !v)}
+            className="w-full flex items-center justify-between gap-3 rounded-xl border border-gray-200 px-3 py-2.5 text-left hover:border-gray-300 transition">
+            <span className="min-w-0">
+              <span className="flex items-center gap-1.5 text-sm text-black"><Lock size={12} className="text-amber-500" /> Reserve this money</span>
+              <span className="block text-[11px] text-gray-400 mt-0.5">{isReserved ? 'Unspent budget is set aside, so it is not counted as free money' : 'Flexible: unspent budget stays in your free money'}</span>
+            </span>
+            <span className={`relative w-9 h-5 rounded-full shrink-0 transition-colors ${isReserved ? 'bg-black' : 'bg-gray-200'}`}>
+              <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${isReserved ? 'translate-x-4' : ''}`} />
+            </span>
+          </button>
         </div>
         <div className="flex gap-2 mt-5">
           <button onClick={onClose} className="flex-1 border border-gray-200 rounded-lg py-2.5 text-sm text-gray-600 hover:bg-gray-50 transition">Cancel</button>
@@ -2835,6 +3197,9 @@ export default function Dashboard() {
   const [openPool, setOpenPool]               = useState<ExpensePool | null>(null)
   const [openDay, setOpenDay]                 = useState<number | null>(null)
   const [dailyOpen, setDailyOpen]             = useState(false)   // collapsed by default
+  const [reservedOpen, setReservedOpen]       = useState(false)   // Reserved money card, collapsed by default
+  const [trendOpen, setTrendOpen]             = useState(false)   // Last 6 months card, collapsed by default
+  const [catOpen, setCatOpen]                 = useState(false)   // By category card, collapsed by default
   const [showDailyPatterns, setShowDailyPatterns] = useState(false)
   const [splitBills, setSplitBills]           = useState<SplitBill[]>([])
   const [billParticipants, setBillParticipants] = useState<SplitBillParticipant[]>([])
@@ -2947,6 +3312,31 @@ export default function Dashboard() {
     const { data: inserted, error } = await supabase.from('expenses').insert({ ...rest, user_id: user.id, created_at: dateWithCurrentTime(date) }).select().single()
     if (!error && inserted) setExpenses(prev => [inserted, ...prev])
     setShowAddExpense(false)
+  }
+  // Batch entry: one bulk insert for the expenses, then one for any budget links.
+  // Budget-linked rows become pool entries (same as + Log), month taken from the row's date.
+  const handleAddExpensesBatch = async (items: BatchItem[]): Promise<BatchResult> => {
+    const { data: ud } = await supabase.auth.getUser(); const user = ud.user
+    if (!user) return { ok: false, message: 'You are signed out. Please log in again.' }
+    const poolTitle = (id: string) => expensePools.find(p => p.id === id)?.title
+    const { data: inserted, error } = await supabase.from('expenses').insert(items.map(it => ({
+      title: it.title, amount: it.amount, category: it.category,
+      note: it.poolId && poolTitle(it.poolId) ? `Pool: ${poolTitle(it.poolId)}` : '',
+      user_id: user.id, created_at: dateWithCurrentTime(it.date),
+    }))).select()
+    if (error || !inserted) return { ok: false, message: 'Could not save. Check your connection and try again.' }
+    setExpenses(prev => [...(inserted as Expense[]), ...prev])
+
+    const links = items.map((it, i) => ({ it, exp: (inserted as Expense[])[i] })).filter(x => x.it.poolId && x.exp)
+    if (links.length > 0) {
+      const { data: entries, error: e2 } = await supabase.from('expense_pool_entries').insert(links.map(({ it, exp }) => ({
+        pool_id: it.poolId, user_id: user.id, amount: it.amount, month: it.date.slice(0, 7),
+        note: '', expense_id: exp.id, created_at: localISOString(),
+      }))).select()
+      if (e2 || !entries) return { ok: true, warning: `${inserted.length} expenses were saved, but linking ${links.length} of them to budgets failed. You can log those budgets manually.` }
+      setPoolEntries(prev => [...(entries as ExpensePoolEntry[]), ...prev])
+    }
+    return { ok: true }
   }
   const handleSaveEdit = async (updated: Partial<Expense>) => {
     if (!editingExpense) return
@@ -3088,7 +3478,7 @@ export default function Dashboard() {
     setLocalPaidBills(prev => { const n = { ...prev }; delete n[r.id]; return n })
   }
 
-  const handleAddPool = async (data: { title: string; budget_amount: number; category: Category; note: string }) => {
+  const handleAddPool = async (data: { title: string; budget_amount: number; category: Category; note: string; is_reserved: boolean }) => {
     const { data: ud } = await supabase.auth.getUser(); const user = ud.user; if (!user) return
     const { data: inserted, error } = await supabase.from('expense_pools').insert({ ...data, user_id: user.id, is_archived: false }).select().single()
     if (!error && inserted) setExpensePools(prev => [...prev, inserted])
@@ -3123,6 +3513,12 @@ export default function Dashboard() {
       setExpensePools(prev => prev.map(p => p.id === poolId ? { ...p, ...updated } : p))
       setOpenPool(prev => prev?.id === poolId ? { ...prev, ...updated } : prev)
     }
+  }
+  // Optimistic: flip locally first so the switch feels instant, roll back on error
+  const handleTogglePoolReserved = async (poolId: string, value: boolean) => {
+    setExpensePools(prev => prev.map(p => p.id === poolId ? { ...p, is_reserved: value } : p))
+    const { error } = await supabase.from('expense_pools').update({ is_reserved: value }).eq('id', poolId)
+    if (error) setExpensePools(prev => prev.map(p => p.id === poolId ? { ...p, is_reserved: !value } : p))
   }
   const handleArchivePool = async (poolId: string) => {
     await supabase.from('expense_pools').update({ is_archived: true }).eq('id', poolId)
@@ -3255,14 +3651,58 @@ export default function Dashboard() {
     return thisMonthTotal / daysElapsed
   }, [thisMonthTotal, selectedMonth])
 
+  // ── Reserved money ("floating loss") ──
+  // Money already promised this month but not yet recorded as an expense:
+  // the unlogged part of every budget + bills still due before month end.
+  // Only meaningful for the current month — in a past month unspent budget
+  // simply wasn't spent.
+  const reserved = useMemo(() => {
+    const now = new Date()
+    const [yr, mo] = selectedMonth.split('-').map(Number)
+    const isCurrentMonth = yr === now.getFullYear() && mo === now.getMonth() + 1
+    const todayIso = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+
+    // Every budget, with how much of it is still unlogged. Flexible budgets
+    // (is_reserved === false) are listed but don't count toward the total.
+    const poolItems = poolsThisMonth.map(p => ({
+      pool: p.pool, spent: p.spent,
+      left: Math.max(p.pool.budget_amount - p.spent, 0),
+      on: p.pool.is_reserved !== false,
+    }))
+
+    // Bills still due on or before month end. Paying a bill advances next_due,
+    // so counting from next_due skips paid occurrences and keeps later ones.
+    const monthEnd = `${selectedMonth}-${String(new Date(yr, mo, 0).getDate()).padStart(2, '0')}`
+    const billItems: { bill: RecurringExpense; times: number; amount: number; firstDue: string; overdue: boolean }[] = []
+    recurring.forEach(r => {
+      let due = r.next_due.slice(0, 10), steps = 0, times = 0
+      const firstDue = due
+      while (due <= monthEnd && steps < 62) { times++; due = nextDueDate(due, r.frequency); steps++ }
+      if (times > 0) billItems.push({ bill: r, times, amount: r.amount * times, firstDue, overdue: firstDue < todayIso })
+    })
+    billItems.sort((x, y) => x.firstDue.localeCompare(y.firstDue))
+
+    const pools = isCurrentMonth ? poolItems.filter(p => p.on).reduce((s, p) => s + p.left, 0) : 0
+    const flexible = isCurrentMonth ? poolItems.filter(p => !p.on).reduce((s, p) => s + p.left, 0) : 0
+    const bills = isCurrentMonth ? billItems.reduce((s, b) => s + b.amount, 0) : 0
+    const total = pools + bills
+    return {
+      isCurrentMonth, poolItems, billItems, pools, bills, flexible, total,
+      poolCount: poolItems.filter(p => p.on && p.left > 0).length,
+      billCount: billItems.length,
+      active: isCurrentMonth && total > 0,
+    }
+  }, [poolsThisMonth, recurring, selectedMonth])
+  const freeToSpend = netSavings - reserved.total
+
   const safeToSpendPerDay = useMemo(() => {
     const now = new Date()
     const [yr, mo] = selectedMonth.split('-').map(Number)
     const isCurrentMonth = yr === now.getFullYear() && mo === now.getMonth() + 1
     const daysInMonth = new Date(yr, mo, 0).getDate()
     const daysLeft = isCurrentMonth ? Math.max(daysInMonth - now.getDate() + 1, 1) : 0
-    return { perDay: daysLeft > 0 ? Math.max(netSavings, 0) / daysLeft : 0, daysLeft, isCurrentMonth }
-  }, [netSavings, selectedMonth])
+    return { perDay: daysLeft > 0 ? Math.max(freeToSpend, 0) / daysLeft : 0, daysLeft, isCurrentMonth }
+  }, [freeToSpend, selectedMonth])
 
   const monthOverMonthPct  = lastMonthTotal === 0 ? 0 : ((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100
   const spendingRate = thisMonthIncomeTot > 0 ? Math.min((thisMonthTotal / thisMonthIncomeTot) * 100, 999) : 0
@@ -3387,9 +3827,6 @@ export default function Dashboard() {
       weekdayAvg: wdayOcc ? dowStats.slice(0, 5).reduce((s, x) => s + x.total, 0) / wdayOcc : 0,
     }
   }, [dailySpend, dowStats])
-
-  // Heat level per day — reused by the collapsed header's mini 7-day strip
-  const dailyHeatLevels = useMemo(() => heatLevels(dailySpend.days), [dailySpend.days])
 
   // Spending pace: cumulative spend per day-of-month, this month vs last month.
   // Same LOCAL-time day bucketing as dailySpend.
@@ -3833,9 +4270,9 @@ export default function Dashboard() {
                 color: lastMonthTotal === 0 ? 'text-gray-400' : monthOverMonthPct > 0 ? 'text-red-600' : 'text-green-700',
                 subIcon: lastMonthTotal === 0 ? null : monthOverMonthPct > 0 ? <ArrowUp size={10} strokeWidth={3} /> : <ArrowDown size={10} strokeWidth={3} />,
                 icon: <CreditCard size={13} strokeWidth={2.25} />,
-                iconBg: 'bg-violet-50 text-violet-600',
+                iconBg: 'bg-red-50 text-red-500',
                 spark: last6Months.map(m => m.total),
-                sparkColor: '#8b5cf6',
+                sparkColor: '#ef4444',
               },
               {
                 label: 'Spending rate',
@@ -3845,7 +4282,7 @@ export default function Dashboard() {
                   : 'Add income first',
                 color: thisMonthIncomeTot === 0 ? 'text-gray-400' : spendingRate >= 100 ? 'text-red-600' : spendingRate >= 80 ? 'text-amber-600' : 'text-green-700',
                 subIcon: spendingRate >= 100 ? <AlertTriangle size={10} strokeWidth={2.5} /> : <TrendingUp size={10} strokeWidth={2.5} />,
-                icon: <LayoutGrid size={13} strokeWidth={2.25} />,
+                icon: <Gauge size={13} strokeWidth={2.25} />,
                 iconBg: 'bg-blue-50 text-blue-600',
                 spark: last6Months.map((m, i) => incomeLast6Months[i] && incomeLast6Months[i].total > 0 ? (m.total / incomeLast6Months[i].total) * 100 : 0),
                 sparkColor: '#3b82f6',
@@ -3854,21 +4291,24 @@ export default function Dashboard() {
                 label: 'Safe to spend',
                 value: !safeToSpendPerDay.isCurrentMonth
                   ? '—'
-                  : netSavings <= 0
+                  : freeToSpend <= 0
                   ? `${fmtShort(0)}/day`
                   : `${fmtShort(safeToSpendPerDay.perDay)}/day`,
                 sub: !safeToSpendPerDay.isCurrentMonth
                   ? 'Month ended'
-                  : netSavings <= 0
-                  ? 'Over budget'
+                  : freeToSpend <= 0
+                  ? (reserved.active && netSavings > 0 ? 'Reserved uses it all' : 'Over budget')
+                  : reserved.active
+                  ? `after reserved · ${safeToSpendPerDay.daysLeft}d left`
                   : `${safeToSpendPerDay.daysLeft} days left`,
                 color: !safeToSpendPerDay.isCurrentMonth
                   ? 'text-gray-400'
-                  : netSavings <= 0
+                  : freeToSpend <= 0
                   ? 'text-red-600'
                   : 'text-gray-600',
-                subIcon: netSavings <= 0 && safeToSpendPerDay.isCurrentMonth ? <AlertTriangle size={10} /> : <Calendar size={10} />,
-                icon: <ShieldCheck size={13} strokeWidth={2.25} />,
+                subIcon: freeToSpend <= 0 && safeToSpendPerDay.isCurrentMonth ? <AlertTriangle size={10} />
+                  : reserved.active && safeToSpendPerDay.isCurrentMonth ? <Lock size={10} /> : <Calendar size={10} />,
+                icon: <Wallet size={13} strokeWidth={2.25} />,
                 iconBg: 'bg-orange-50 text-orange-500',
                 spark: dailyBalanceSeries.map(d => d.balance),
                 sparkColor: '#f97316',
@@ -3898,6 +4338,173 @@ export default function Dashboard() {
             })}
           </div>
 
+          {/* ── Reserved money ── */}
+          {/* Money already promised this month (unlogged budgets + unpaid bills),
+              so "free" is what's honestly left. Current month only. */}
+          {reserved.isCurrentMonth && (reserved.poolItems.length > 0 || reserved.billItems.length > 0) && (() => {
+            const spent  = thisMonthTotal
+            const income = thisMonthIncomeTot
+            const free   = Math.max(freeToSpend, 0)
+            const short  = freeToSpend < 0
+            const denom  = Math.max(income, spent + reserved.total, 1)
+            const w = (v: number) => `${(v / denom) * 100}%`
+            const todayStart = new Date(); todayStart.setHours(0, 0, 0, 0)
+            const dueLabel = (iso: string, overdue: boolean) => {
+              if (overdue) return { text: 'Overdue', cls: 'text-red-600' }
+              const d = new Date(`${iso}T00:00:00`)
+              const days = Math.round((d.getTime() - todayStart.getTime()) / 86_400_000)
+              if (days === 0) return { text: 'Due today', cls: 'text-amber-600' }
+              if (days <= 3) return { text: `Due in ${days}d`, cls: 'text-amber-600' }
+              return { text: d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }), cls: 'text-gray-400' }
+            }
+            return (
+          <div className={`${CARD} px-4 py-3 mb-3`}>
+            <button onClick={() => setReservedOpen(v => !v)} aria-expanded={reservedOpen}
+              className="w-full flex items-center justify-between gap-2 text-left">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <Vault size={14} className="text-black shrink-0" />
+                <p className="text-xs font-semibold text-black uppercase tracking-wider truncate">Reserved money</p>
+              </div>
+              <div className="flex items-center gap-3 shrink-0 min-w-0">
+                {!reservedOpen && (
+                  <>
+                    <span className="text-xs font-medium text-black truncate">{fmt(reserved.total)} reserved</span>
+                    <span aria-hidden="true" className="hidden sm:inline-block w-px h-4 bg-gray-200" />
+                    <span className={`hidden sm:inline text-[11px] font-medium ${short ? 'text-red-600' : 'text-emerald-600'}`}>
+                      {fmt(Math.abs(freeToSpend))} {short ? 'short' : 'free'}
+                    </span>
+                  </>
+                )}
+                <ChevronRight size={14} className={`text-black transition-transform duration-300 ${reservedOpen ? 'rotate-90' : 'rotate-0'}`} />
+              </div>
+            </button>
+
+            {reservedOpen && (<div className="animate-slide-up mt-4">
+              {/* Equation: Remaining − Reserved = Free */}
+              <div className="grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1.5">
+                <div className="rounded-xl bg-gray-50 px-3 py-2.5 min-w-0">
+                  <p className="text-[10px] text-gray-500 truncate">Remaining</p>
+                  <p className={`text-sm font-medium mt-0.5 truncate tabular-nums ${netSavings < 0 ? 'text-red-600' : 'text-black'}`}>{netSavings < 0 ? '-' : ''}{fmt(Math.abs(netSavings))}</p>
+                </div>
+                <span className="text-gray-300 text-sm font-medium" aria-hidden="true">−</span>
+                <div className="rounded-xl bg-amber-50 px-3 py-2.5 min-w-0">
+                  <p className="text-[10px] text-amber-700 truncate">Reserved</p>
+                  <p className="text-sm font-medium text-amber-900 mt-0.5 truncate tabular-nums">{fmt(reserved.total)}</p>
+                </div>
+                <span className="text-gray-300 text-sm font-medium" aria-hidden="true">=</span>
+                <div className={`rounded-xl px-3 py-2.5 min-w-0 ${short ? 'bg-red-50' : 'bg-emerald-50'}`}>
+                  <p className={`text-[10px] truncate ${short ? 'text-red-700' : 'text-emerald-700'}`}>{short ? 'Short' : 'Free to spend'}</p>
+                  <p className={`text-sm font-medium mt-0.5 truncate tabular-nums ${short ? 'text-red-700' : 'text-emerald-800'}`}>{fmt(Math.abs(freeToSpend))}</p>
+                </div>
+              </div>
+
+              {/* Where this month's money goes */}
+              <div className="mt-4">
+                <div className="relative h-2.5 rounded-full bg-gray-100 overflow-hidden flex">
+                  <div className="h-full bg-gray-800 transition-all duration-700" style={{ width: w(spent) }} title={`Spent ${fmt(spent)}`} />
+                  <div className="h-full transition-all duration-700" title={`Reserved ${fmt(reserved.total)}`}
+                    style={{ width: w(reserved.total), backgroundImage: 'repeating-linear-gradient(135deg, #f59e0b 0 4px, #fbbf24 4px 8px)' }} />
+                  <div className="h-full bg-emerald-500 transition-all duration-700" style={{ width: w(free) }} title={`Free ${fmt(free)}`} />
+                  {short && income > 0 && (
+                    <div className="absolute top-0 bottom-0 w-0.5 bg-red-600" style={{ left: w(income) }} title={`Income ${fmt(income)}`} />
+                  )}
+                </div>
+                <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="flex items-center gap-1.5 text-[10px] text-gray-500"><span className="w-2 h-2 rounded-full bg-gray-800" />Spent {fmtShort(spent)}</span>
+                    <span className="flex items-center gap-1.5 text-[10px] text-gray-500"><span className="w-2 h-2 rounded-full bg-amber-400" />Reserved {fmtShort(reserved.total)}</span>
+                    <span className="flex items-center gap-1.5 text-[10px] text-gray-500"><span className="w-2 h-2 rounded-full bg-emerald-500" />Free {fmtShort(free)}</span>
+                  </div>
+                  {short && income > 0 && <span className="text-[10px] text-red-600">Red line = your income</span>}
+                </div>
+                <p className="text-xs text-gray-600 mt-3">
+                  {short
+                    ? <>Your budgets and bills need <strong className="font-medium text-red-600">{fmt(Math.abs(freeToSpend))}</strong> more than you have left. Try switching off a budget that can wait.</>
+                    : <>You can safely spend <strong className="font-medium text-black">{fmt(Math.round(safeToSpendPerDay.perDay))}</strong> a day for the next {safeToSpendPerDay.daysLeft} {safeToSpendPerDay.daysLeft === 1 ? 'day' : 'days'}.</>}
+                </p>
+              </div>
+
+              {/* Budgets */}
+              {reserved.poolItems.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <div className="flex items-baseline justify-between gap-2 mb-2">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Budgets</p>
+                    <p className="text-[10px] text-gray-400">Switch off budgets that can wait</p>
+                  </div>
+                  <div className="flex flex-col divide-y divide-gray-100">
+                    {reserved.poolItems.map(({ pool, spent: used, left, on }) => {
+                      const cfg = CATEGORY_CONFIG[pool.category]
+                      const over = used > pool.budget_amount
+                      return (
+                        <div key={pool.id} className="flex items-center gap-3 py-2.5">
+                          <div className={`w-7 h-7 rounded-lg ${cfg.bg} flex items-center justify-center shrink-0`}><span className={cfg.text}>{cfg.icon}</span></div>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-sm truncate ${on ? 'text-gray-900' : 'text-gray-400'}`}>{pool.title}</p>
+                            <p className={`text-[11px] truncate ${over ? 'text-red-500' : 'text-gray-400'}`}>
+                              {over ? `Over budget by ${fmt(used - pool.budget_amount)}` : left === 0 ? 'Fully used' : `${fmt(left)} of ${fmt(pool.budget_amount)} left`}
+                            </p>
+                          </div>
+                          <span className={`text-xs tabular-nums shrink-0 text-right ${on && left > 0 ? 'font-medium text-amber-700' : 'text-gray-300'}`}>
+                            {on ? fmt(left) : 'Flexible'}
+                          </span>
+                          <button role="switch" aria-checked={on} aria-label={`Reserve ${pool.title}`}
+                            title={on ? 'Reserved — click to make flexible' : 'Flexible — click to reserve'}
+                            onClick={() => handleTogglePoolReserved(pool.id, !on)}
+                            className={`relative w-9 h-5 rounded-full shrink-0 transition-colors ${on ? 'bg-black' : 'bg-gray-200'}`}>
+                            <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${on ? 'translate-x-4' : ''}`} />
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                  {reserved.flexible > 0 && (
+                    <p className="text-[11px] text-gray-400 mt-1">{fmt(reserved.flexible)} of flexible budget is counted as free money.</p>
+                  )}
+                </div>
+              )}
+
+              {/* Bills */}
+              {reserved.billItems.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <div className="flex items-baseline justify-between gap-2 mb-2">
+                    <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-wider">Bills due this month</p>
+                    <p className="text-[10px] text-gray-400">{fmt(reserved.bills)}</p>
+                  </div>
+                  <div className="flex flex-col divide-y divide-gray-100">
+                    {reserved.billItems.map(({ bill, times, amount, firstDue, overdue }) => {
+                      const cfg = CATEGORY_CONFIG[bill.category]
+                      const due = dueLabel(firstDue, overdue)
+                      const paying = payingBillId === bill.id
+                      return (
+                        <div key={bill.id} className="flex items-center gap-3 py-2.5">
+                          <div className={`w-7 h-7 rounded-lg ${cfg.bg} flex items-center justify-center shrink-0`}><span className={cfg.text}>{cfg.icon}</span></div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-gray-900 truncate">
+                              {bill.title}
+                              {times > 1 && <span className="ml-1.5 text-[10px] text-gray-400 font-medium">{times}x</span>}
+                            </p>
+                            <p className={`text-[11px] ${due.cls}`}>{due.text}</p>
+                          </div>
+                          <span className="text-xs font-medium text-amber-700 tabular-nums shrink-0">{fmt(amount)}</span>
+                          <button onClick={() => handlePayBill(bill)} disabled={paying}
+                            className="flex items-center justify-center gap-1 h-7 px-2.5 rounded-full border border-gray-200 text-[11px] font-medium text-gray-700 hover:border-black hover:text-black transition-all shrink-0 disabled:opacity-50">
+                            {paying ? <div className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" /> : <><Check size={11} /> Pay</>}
+                          </button>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              <p className="text-[10px] text-gray-400 text-center mt-4 leading-relaxed">
+                Use <strong className="font-medium text-gray-500">+ Log</strong> on a budget when you spend from it. Adding it as a normal expense would count it twice.
+              </p>
+            </div>)}
+          </div>
+            )
+          })()}
+
           {/* ── Daily spending ── */}
           {/* Collapsed by default. Content is conditionally rendered rather than
               height-animated: a max-height wrapper needs overflow:hidden, which
@@ -3911,22 +4518,6 @@ export default function Dashboard() {
                 <p className="text-xs font-semibold text-black uppercase tracking-wider truncate">Daily spending</p>
               </div>
               <div className="flex items-center gap-3 shrink-0 min-w-0">
-                {/* Mini 7-day strip — a glance at the last week even while closed */}
-                {!dailyOpen && dailySpend.elapsedDays > 0 && (
-                  <span aria-hidden="true" className="hidden sm:flex items-center gap-[3px]">
-                    {dailySpend.days.slice(Math.max(0, dailySpend.elapsedDays - 7), dailySpend.elapsedDays).map(d => (
-                      <span key={d.day} className="w-2.5 h-2.5 rounded-[3px]" style={{ backgroundColor: HEAT_COLORS[dailyHeatLevels[d.day - 1]] }} />
-                    ))}
-                  </span>
-                )}
-                {!dailyOpen && dailySpend.elapsedDays > 0 && (
-                  <span className="text-xs font-medium text-black truncate">
-                    {dailySpend.spentDayCount === 0
-                      ? 'No spending yet'
-                      : `${fmt(Math.round(dailySpend.medianActiveDay))} typical day`}
-                  </span>
-                )}
-                {!dailyOpen && dailySpend.elapsedDays > 0 && <span aria-hidden="true" className="hidden sm:inline-block w-px h-4 bg-gray-200" />}
                 <span className="hidden sm:inline text-[11px] text-gray-400">{getMonthLabelFull(selectedMonth)}</span>
                 <ChevronRight size={14} className={`text-black transition-transform duration-300 ${dailyOpen ? 'rotate-90' : 'rotate-0'}`} />
               </div>
@@ -4015,64 +4606,98 @@ export default function Dashboard() {
             </div>)}
           </div>
 
-          {/* ── Charts ── */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-2.5">
-            <div className={`${CARD} p-4`}>
-              <div className="flex items-center justify-between gap-2 mb-3.5">
-                <div className="flex items-center gap-2.5 min-w-0">
+          {/* ── Charts ── (each collapsible, closed by default) */}
+          {/* Cards keep their natural height — stretching spreads the month rows apart */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-2.5 items-start">
+            <div className={`${CARD} px-4 py-3`}>
+              <button onClick={() => setTrendOpen(v => !v)} aria-expanded={trendOpen}
+                className="w-full flex items-center justify-between gap-2 text-left">
+                <span className="flex items-center gap-2.5 min-w-0">
                   <BarChart3 size={14} className="text-black shrink-0" strokeWidth={2.5} />
-                  <p className="text-xs font-semibold text-black uppercase tracking-wider truncate">
-                    {chartView === 'monthly' ? 'Last 6 months' : 'Weekly breakdown'}
-                  </p>
-                </div>
-                <div className="flex bg-gray-100 rounded-full p-1 shrink-0">
-                  <button onClick={() => setChartView('monthly')}
-                    className={`px-3 py-0.5 rounded-full text-[11px] font-semibold transition-all ${chartView === 'monthly' ? 'bg-black text-white shadow-sm' : 'text-gray-500 hover:text-black'}`}>
-                    Monthly
-                  </button>
-                  <button onClick={() => setChartView('weekly')}
-                    className={`px-3 py-0.5 rounded-full text-[11px] font-semibold transition-all ${chartView === 'weekly' ? 'bg-black text-white shadow-sm' : 'text-gray-500 hover:text-black'}`}>
-                    Weekly
-                  </button>
-                </div>
-              </div>
-              {chartView === 'monthly' ? (
-                <div className="flex flex-col gap-2.5">
-                  {last6Months.map(m => (
-                    <div key={m.key} className="flex items-center gap-2.5">
-                      <span className={`text-xs w-8 shrink-0 ${m.key === selectedMonth ? 'text-black font-medium' : 'text-gray-500'}`}>{m.label}</span>
-                      <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
-                        <div className={`h-full rounded-full transition-all duration-700 ${m.key === selectedMonth ? 'bg-black' : 'bg-gray-400'}`}
-                          style={{ width: m.total ? `${(m.total / maxMonthly) * 100}%` : '0%' }} />
+                  <span className="text-xs font-semibold text-black uppercase tracking-wider truncate">Last 6 months</span>
+                </span>
+                <span className="flex items-center gap-2 shrink-0">
+                  {!trendOpen && (
+                    <span className="text-[11px] text-gray-500 tabular-nums">
+                      {MONTHS_SHORT[Number(selectedMonth.split('-')[1]) - 1]} {fmtShort(thisMonthTotal)}
+                    </span>
+                  )}
+                  <ChevronRight size={14} className={`text-black transition-transform duration-300 ${trendOpen ? 'rotate-90' : 'rotate-0'}`} />
+                </span>
+              </button>
+              {trendOpen && (() => {
+                const withData = last6Months.filter(m => m.total > 0 && m.key !== selectedMonth)
+                const avg = withData.length ? withData.reduce((s, m) => s + m.total, 0) / withData.length : 0
+                const vsAvg = avg > 0 ? ((thisMonthTotal - avg) / avg) * 100 : null
+                const filled = last6Months.filter(m => m.total > 0)
+                const highest = filled.reduce<typeof filled[number] | null>((m, x) => !m || x.total > m.total ? x : m, null)
+                const lowest  = filled.reduce<typeof filled[number] | null>((m, x) => !m || x.total < m.total ? x : m, null)
+                return (
+                <div className="animate-slide-up mt-3.5">
+                  <div className="flex flex-col gap-2.5">
+                    {last6Months.map(m => (
+                      <div key={m.key} className="flex items-center gap-2.5">
+                        <span className={`text-xs w-8 shrink-0 ${m.key === selectedMonth ? 'text-black font-medium' : 'text-gray-500'}`}>{m.label}</span>
+                        <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
+                          <div className={`h-full rounded-full transition-all duration-700 ${m.key === selectedMonth ? 'bg-black' : 'bg-gray-400'}`}
+                            style={{ width: m.total ? `${(m.total / maxMonthly) * 100}%` : '0%' }} />
+                        </div>
+                        <span className="text-xs text-gray-500 w-14 text-right shrink-0 tabular-nums">{m.total ? fmtShort(m.total) : '—'}</span>
                       </div>
-                      <span className="text-xs text-gray-500 w-14 text-right shrink-0 tabular-nums">{m.total ? fmtShort(m.total) : '—'}</span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="flex flex-col gap-2.5">
-                  {weeklyData.map((w, i) => (
-                    <div key={i} className="flex items-center gap-2.5">
-                      <span className="text-xs text-gray-500 w-8 shrink-0">{w.label}</span>
-                      <div className="flex-1 bg-gray-100 rounded-full h-2 overflow-hidden">
-                        <div className="h-full rounded-full bg-black transition-all duration-700"
-                          style={{ width: w.total ? `${(w.total / maxWeekly) * 100}%` : '0%' }} />
+                    ))}
+                  </div>
+                  {avg > 0 && (
+                    <div className="grid grid-cols-2 gap-2 mt-4">
+                      <div className="rounded-xl bg-gray-50 px-3 py-2.5 min-w-0">
+                        <p className="text-[10px] text-gray-500 truncate">Monthly average</p>
+                        <p className="text-sm font-medium text-black mt-0.5 truncate tabular-nums">{fmt(Math.round(avg))}</p>
                       </div>
-                      <span className="text-xs text-gray-500 w-14 text-right shrink-0 tabular-nums">{w.total ? fmtShort(w.total) : '—'}</span>
+                      <div className="rounded-xl bg-gray-50 px-3 py-2.5 min-w-0">
+                        <p className="text-[10px] text-gray-500 truncate">This month vs average</p>
+                        <p className={`text-sm font-medium mt-0.5 truncate tabular-nums ${vsAvg === null ? 'text-black' : vsAvg > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
+                          {vsAvg === null ? '—' : `${vsAvg > 0 ? '+' : ''}${vsAvg.toFixed(0)}%`}
+                        </p>
+                      </div>
+                      {highest && lowest && filled.length > 1 && (<>
+                        <div className="rounded-xl bg-gray-50 px-3 py-2.5 min-w-0">
+                          <p className="text-[10px] text-gray-500 truncate">Highest month</p>
+                          <p className="text-sm font-medium text-black mt-0.5 truncate tabular-nums">{fmt(highest.total)}</p>
+                          <p className="text-[10px] text-gray-400 truncate">{getMonthLabelFull(highest.key)}</p>
+                        </div>
+                        <div className="rounded-xl bg-gray-50 px-3 py-2.5 min-w-0">
+                          <p className="text-[10px] text-gray-500 truncate">Lowest month</p>
+                          <p className="text-sm font-medium text-black mt-0.5 truncate tabular-nums">{fmt(lowest.total)}</p>
+                          <p className="text-[10px] text-gray-400 truncate">{getMonthLabelFull(lowest.key)}</p>
+                        </div>
+                      </>)}
                     </div>
-                  ))}
-                  {weeklyData.every(w => w.total === 0) && (
-                    <p className="text-xs text-gray-300 text-center mt-4">No expenses this month</p>
                   )}
                 </div>
-              )}
+                )
+              })()}
             </div>
 
-            <div className={`${CARD} p-4`}>
-              <div className="flex items-center gap-2.5 mb-3">
-                <PieChart size={14} className="text-black shrink-0" strokeWidth={2.5} />
-                <p className="text-xs font-semibold text-black uppercase tracking-wider">By category</p>
-              </div>
+            <div className={`${CARD} px-4 py-3`}>
+              <button onClick={() => setCatOpen(v => !v)} aria-expanded={catOpen}
+                className="w-full flex items-center justify-between gap-2 text-left">
+                <span className="flex items-center gap-2.5 min-w-0">
+                  <PieChart size={14} className="text-black shrink-0" strokeWidth={2.5} />
+                  <span className="text-xs font-semibold text-black uppercase tracking-wider truncate">By category</span>
+                </span>
+                <span className="flex items-center gap-2 shrink-0 min-w-0">
+                  {!catOpen && thisMonthTotal > 0 && (() => {
+                    const top = (Object.keys(categoryTotals) as Category[]).sort((a, b) => (categoryTotals[b] || 0) - (categoryTotals[a] || 0))[0]
+                    return top ? (
+                      <span className="flex items-center gap-1.5 text-[11px] text-gray-500 truncate">
+                        <span className="w-2 h-2 rounded-full shrink-0" style={{ background: CATEGORY_COLOR[top] }} />
+                        {CATEGORY_CONFIG[top].label.split(' ')[0]} {(((categoryTotals[top] || 0) / thisMonthTotal) * 100).toFixed(0)}%
+                      </span>
+                    ) : null
+                  })()}
+                  <ChevronRight size={14} className={`text-black transition-transform duration-300 ${catOpen ? 'rotate-90' : 'rotate-0'}`} />
+                </span>
+              </button>
+              {catOpen && <div className="animate-slide-up mt-3">
               {thisMonthTotal === 0 ? <p className="text-xs text-gray-300 text-center mt-6">No data this month</p> : (() => {
                 const slices = (Object.keys(CATEGORY_CONFIG) as Category[])
                   .map(cat => ({ cat, spent: categoryTotals[cat] || 0, pct: (categoryTotals[cat] || 0) / thisMonthTotal * 100 }))
@@ -4132,12 +4757,14 @@ export default function Dashboard() {
                   </div>
                 )
               })()}
+              </div>}
             </div>
           </div>
 
           {/* Smart Insights */}
           <SmartInsightsCard cardClass={CARD} thisMonthTotal={thisMonthTotal} lastMonthTotal={lastMonthTotal} avgPerDay={avgPerDay}
-            categoryTotals={categoryTotals} thisMonthIncomeTot={thisMonthIncomeTot} netSavings={netSavings} budgets={budgets} budgetSpend={budgetSpend} />
+            categoryTotals={categoryTotals} thisMonthIncomeTot={thisMonthIncomeTot} netSavings={netSavings} budgets={budgets} budgetSpend={budgetSpend}
+            freeToSpend={reserved.active ? freeToSpend : undefined} />
 
           {/* Budget Tracker */}
           {budgets.length > 0 && (
@@ -4313,7 +4940,7 @@ export default function Dashboard() {
                           ? <span className="text-red-500 font-medium text-right shrink-0">Over by {fmt(spent - pool.budget_amount)}</span>
                           : warn
                           ? <span className="text-amber-500 text-right shrink-0">{fmt(remaining)} left · {pct.toFixed(0)}% used</span>
-                          : <span className="text-gray-400 text-right shrink-0">{fmt(remaining)} remaining</span>
+                          : <span className="text-gray-400 text-right shrink-0">{fmt(remaining)} remaining{reserved.isCurrentMonth && (pool.is_reserved !== false ? <span className="ml-1 inline-flex items-center gap-0.5 text-[10px] text-amber-600"><Lock size={9} />reserved</span> : <span className="ml-1 text-[10px] text-gray-400">flexible</span>)}</span>
                         }
                       </div>
                       {days !== null && <p className="text-[10px] text-gray-300 mt-0.5 text-right">{days}d left in the month</p>}
@@ -4733,7 +5360,8 @@ export default function Dashboard() {
       {showSettings && <SettingsModal value={viewMode} onChange={changeView} onClose={() => setShowSettings(false)} />}
 
       {/* Modals */}
-      {showAddExpense  && <AddExpenseModal  onClose={() => setShowAddExpense(false)}  onSave={handleAddExpense} />}
+      {showAddExpense  && <AddExpenseModal  onClose={() => setShowAddExpense(false)}  onSave={handleAddExpense}
+        onSaveBatch={handleAddExpensesBatch} pools={expensePools} pastExpenses={expenses} poolEntries={poolEntries} />}
       {editingExpense  && <EditExpenseModal expense={editingExpense} onClose={() => setEditingExpense(null)} onSave={handleSaveEdit} />}
       {deletingExpense && <DeleteConfirm   title={deletingExpense.title} onConfirm={handleConfirmDelete} onCancel={() => setDeletingExpense(null)} deleting={isDeleting} />}
       {showAddIncome   && <AddIncomeModal  onClose={() => setShowAddIncome(false)}   onSave={handleAddIncome} />}

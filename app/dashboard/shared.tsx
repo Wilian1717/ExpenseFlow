@@ -49,6 +49,7 @@ export interface RecurringExpense {
 export interface ExpensePool {
   id: string; user_id: string; title: string; budget_amount: number
   category: Category; note?: string; created_at: string; is_archived: boolean
+  is_reserved?: boolean   // counts toward "Reserved" money; undefined = true (column default)
 }
 export interface ExpensePoolEntry {
   id: string; pool_id: string; user_id: string; amount: number
@@ -456,11 +457,14 @@ type SmartInsightsProps = {
   thisMonthTotal: number; lastMonthTotal: number; avgPerDay: number
   categoryTotals: Partial<Record<Category, number>>; thisMonthIncomeTot: number
   netSavings: number; budgets: Budget[]; budgetSpend: Partial<Record<Category, number>>
+  freeToSpend?: number      // Beginner only: money left after reserved budgets + unpaid bills
 }
 type Insight = { icon: React.ReactNode; text: string; color: string; bg: string }
 
-export function buildInsights({ thisMonthTotal, lastMonthTotal, avgPerDay, categoryTotals, thisMonthIncomeTot, netSavings, budgets, budgetSpend }: SmartInsightsProps): Insight[] {
+export function buildInsights({ thisMonthTotal, lastMonthTotal, avgPerDay, categoryTotals, thisMonthIncomeTot, netSavings, budgets, budgetSpend, freeToSpend }: SmartInsightsProps): Insight[] {
   const insights: Insight[] = []
+  if (freeToSpend !== undefined && freeToSpend < 0 && netSavings >= 0)
+    insights.push({ icon: <AlertTriangle size={13} />, text: `Your budgets and bills need ${fmt(Math.abs(freeToSpend))} more than you have left this month`, color: 'text-red-700', bg: 'bg-red-50' })
   if (lastMonthTotal > 0 && thisMonthTotal > 0) {
     const pct = ((thisMonthTotal - lastMonthTotal) / lastMonthTotal) * 100
     if (pct > 10) insights.push({ icon: <TrendingUp size={13} />, text: `Spending is up ${pct.toFixed(0)}% vs last month`, color: 'text-red-700', bg: 'bg-red-50' })
