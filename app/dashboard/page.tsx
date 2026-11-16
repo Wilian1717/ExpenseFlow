@@ -680,7 +680,9 @@ function BatchExpenseEditor({ onClose, onSave, pools, pastExpenses, poolEntries,
   const clearAll = () => { const fresh = [emptyRow(today), emptyRow(today), emptyRow(today)]; setRows(fresh); setActiveId(fresh[0].id); setShowErrors(false); setError(null) }
 
   const isEmpty   = (r: BatchRow) => !r.title.trim() && !r.amount
-  const isValid   = (r: BatchRow) => !!r.title.trim() && parseRp(r.amount) > 0 && !!r.date
+  // A budget-linked row names itself after the budget (same as + Log), so its description is optional
+  const isLinked  = (r: BatchRow) => !!r.poolId && pools.some(p => p.id === r.poolId)
+  const isValid   = (r: BatchRow) => (!!r.title.trim() || isLinked(r)) && parseRp(r.amount) > 0 && !!r.date
   const valid     = rows.filter(isValid)
   const partial   = rows.filter(r => !isEmpty(r) && !isValid(r))
   const total     = valid.reduce((s, r) => s + parseRp(r.amount), 0)
@@ -788,7 +790,7 @@ function BatchExpenseEditor({ onClose, onSave, pools, pastExpenses, poolEntries,
                   <div className="flex items-center gap-3">
                     <span className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${cfg.bg} ${cfg.text}`}>{cfg.icon}</span>
                     <input ref={el => { descRefs.current[r.id] = el }} value={r.title} list={listId}
-                      placeholder={bad && !r.title.trim() ? 'Add a description' : 'What did you spend on?'}
+                      placeholder={linked ? `${linked.title} · add a note (optional)` : bad && !r.title.trim() ? 'Add a description' : 'What did you spend on?'}
                       aria-label={`Row ${idx + 1} description`}
                       onChange={e => onTitle(r, e.target.value)}
                       onKeyDown={e => { if (e.key === 'Backspace' && isEmpty(r) && rows.length > 1) { e.preventDefault(); removeRow(r.id) } }}
@@ -3439,13 +3441,18 @@ export default function Dashboard() {
   const handleAddExpensesBatch = async (items: BatchItem[]): Promise<BatchResult> => {
     const { data: ud } = await supabase.auth.getUser(); const user = ud.user
     if (!user) return { ok: false, message: 'You are signed out. Please log in again.' }
-    const poolTitle = (id: string) => expensePools.find(p => p.id === id)?.title
-    const { data: inserted, error } = await supabase.from('expenses').insert(items.map(it => ({
-      // Safety net: a budget-linked expense always takes the budget's category
-      title: it.title, amount: it.amount, category: (it.poolId && expensePools.find(p => p.id === it.poolId)?.category) || it.category,
-      note: it.poolId && poolTitle(it.poolId) ? `Pool: ${poolTitle(it.poolId)}` : '',
-      user_id: user.id, created_at: dateWithCurrentTime(it.date),
-    }))).select()
+    // Budget-linked rows mirror handleLogPoolEntry: title = budget name, typed text = note.
+    // Unlinked rows keep their typed description as the title.
+    const { data: inserted, error } = await supabase.from('expenses').insert(items.map(it => {
+      const pool = it.poolId ? expensePools.find(p => p.id === it.poolId) : undefined
+      return {
+        title: pool ? pool.title : it.title,
+        amount: it.amount,
+        category: pool ? pool.category : it.category,   // safety net: the budget decides the category
+        note: pool ? (it.title || `Pool: ${pool.title}`) : '',
+        user_id: user.id, created_at: dateWithCurrentTime(it.date),
+      }
+    })).select()
     if (error || !inserted) return { ok: false, message: 'Could not save. Check your connection and try again.' }
     setExpenses(prev => [...(inserted as Expense[]), ...prev])
 
@@ -3453,7 +3460,7 @@ export default function Dashboard() {
     if (links.length > 0) {
       const { data: entries, error: e2 } = await supabase.from('expense_pool_entries').insert(links.map(({ it, exp }) => ({
         pool_id: it.poolId, user_id: user.id, amount: it.amount, month: it.date.slice(0, 7),
-        note: '', expense_id: exp.id, created_at: localISOString(),
+        note: it.title, expense_id: exp.id, created_at: localISOString(),
       }))).select()
       if (e2 || !entries) return { ok: true, warning: `${inserted.length} expenses were saved, but linking ${links.length} of them to budgets failed. You can log those budgets manually.` }
       setPoolEntries(prev => [...(entries as ExpensePoolEntry[]), ...prev])
