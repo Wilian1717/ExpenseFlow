@@ -3250,6 +3250,7 @@ export default function Dashboard() {
   const [showTotalBalance, setShowTotalBalance]     = useState(false)
   const [showMonthlyBalance, setShowMonthlyBalance] = useState(false)
   const [showIncome, setShowIncome]                 = useState(false)   // income is sensitive: hidden by default, like the balances
+  const [showExpenses, setShowExpenses]             = useState(false)   // expenses too: hidden by default
   const [loading, setLoading]                 = useState(true)
   const [searchQuery, setSearchQuery]         = useState('')
   const [showSearch, setShowSearch]           = useState(false)
@@ -4289,6 +4290,7 @@ export default function Dashboard() {
           reservedSummary={{ active: reserved.active, total: reserved.total, isCurrentMonth: reserved.isCurrentMonth, hasItems: reserved.poolItems.length > 0 || reserved.billItems.length > 0 }}
           freeToSpend={freeToSpend} spendingPace={spendingPace}
           showIncome={showIncome} setShowIncome={setShowIncome}
+          showExpenses={showExpenses} setShowExpenses={setShowExpenses}
           selectedMonth={selectedMonth} setSelectedMonth={setSelectedMonth}
           last6Months={last6Months} incomeLast6Months={incomeLast6Months}
           cumulativeBalance={cumulativeBalance} netSavings={netSavings}
@@ -4524,7 +4526,7 @@ export default function Dashboard() {
             {[
               {
                 label: 'Income',
-                hideable: true,
+                hideKey: 'income' as const,
                 value: fmtShort(thisMonthIncomeTot),
                 sub: `${thisMonthIncome.length} entr${thisMonthIncome.length === 1 ? 'y' : 'ies'}`,
                 color: 'text-green-700',
@@ -4536,6 +4538,7 @@ export default function Dashboard() {
               },
               {
                 label: 'Expenses',
+                hideKey: 'expenses' as const,
                 value: fmtShort(thisMonthTotal),
                 sub: lastMonthTotal > 0 ? `${Math.abs(monthOverMonthPct).toFixed(0)}% vs last mo.` : 'No prior data',
                 color: lastMonthTotal === 0 ? 'text-gray-400' : monthOverMonthPct > 0 ? 'text-red-600' : 'text-green-700',
@@ -4585,7 +4588,11 @@ export default function Dashboard() {
                 sparkColor: '#f97316',
               },
             ].map((s, i) => {
-              const hidden = 'hideable' in s && s.hideable && !showIncome
+              // Income and Expenses each have their own eye toggle
+              const hideKey = 'hideKey' in s ? s.hideKey : null
+              const shown = hideKey === 'income' ? showIncome : hideKey === 'expenses' ? showExpenses : true
+              const toggleShown = hideKey === 'income' ? setShowIncome : setShowExpenses
+              const hidden = !!hideKey && !shown
               // A hidden amount also hides its trend line, which would reveal the shape of the numbers
               const showSpark = !hidden && s.spark.length >= 2 && s.spark.some(v => v !== 0)
               return (
@@ -4599,10 +4606,10 @@ export default function Dashboard() {
                     <div className="flex items-center gap-2">
                       <span className={`ef-stat-icon w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${s.iconBg}`}>{s.icon}</span>
                       <p className="text-xs text-gray-500 truncate flex-1">{s.label}</p>
-                      {'hideable' in s && s.hideable && (
-                        <button onClick={() => setShowIncome(v => !v)} title={showIncome ? 'Hide' : 'Show'} aria-label={showIncome ? 'Hide income' : 'Show income'}
+                      {hideKey && (
+                        <button onClick={() => toggleShown(v => !v)} title={shown ? 'Hide' : 'Show'} aria-label={`${shown ? 'Hide' : 'Show'} ${s.label.toLowerCase()}`}
                           className="text-gray-400 hover:text-gray-700 transition-colors shrink-0 -mr-0.5">
-                          {showIncome ? <EyeOff size={14} /> : <Eye size={14} />}
+                          {shown ? <EyeOff size={14} /> : <Eye size={14} />}
                         </button>
                       )}
                     </div>

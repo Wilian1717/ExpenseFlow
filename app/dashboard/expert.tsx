@@ -677,6 +677,8 @@ export interface ExpertViewProps {
   spendingPace: { thisSeries: number[]; lastSeries: number[] }
   showIncome: boolean
   setShowIncome: React.Dispatch<React.SetStateAction<boolean>>
+  showExpenses: boolean
+  setShowExpenses: React.Dispatch<React.SetStateAction<boolean>>
   // month
   selectedMonth: string
   setSelectedMonth: (m: string) => void
@@ -1091,7 +1093,7 @@ export default function ExpertView(p: ExpertViewProps) {
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-y-3 pt-4 border-t border-gray-100 sm:divide-x sm:divide-gray-100">
                     {[
                       { l: 'Income', v: p.showIncome ? fmtFull(p.thisMonthIncomeTot) : '••••••', c: p.showIncome ? 'text-emerald-700' : 'text-gray-300 tracking-widest' },
-                      { l: 'Expenses', v: fmtFull(p.thisMonthTotal), c: 'text-red-600' },
+                      { l: 'Expenses', v: p.showExpenses ? fmtFull(p.thisMonthTotal) : '••••••', c: p.showExpenses ? 'text-red-600' : 'text-gray-300 tracking-widest' },
                       { l: 'Transactions', v: String(monthExpenses.length), c: 'text-gray-900' },
                       { l: 'Avg/transaction', v: monthExpenses.length ? fmtFull(p.thisMonthTotal / monthExpenses.length) : '—', c: 'text-gray-900' },
                     ].map((s, i) => (
@@ -1102,6 +1104,12 @@ export default function ExpertView(p: ExpertViewProps) {
                             <button onClick={() => p.setShowIncome(v => !v)} title={p.showIncome ? 'Hide income' : 'Show income'}
                               className="text-gray-300 hover:text-black transition-colors">
                               {p.showIncome ? <EyeOff size={11} /> : <Eye size={11} />}
+                            </button>
+                          )}
+                          {s.l === 'Expenses' && (
+                            <button onClick={() => p.setShowExpenses(v => !v)} title={p.showExpenses ? 'Hide expenses' : 'Show expenses'}
+                              className="text-gray-300 hover:text-black transition-colors">
+                              {p.showExpenses ? <EyeOff size={11} /> : <Eye size={11} />}
                             </button>
                           )}
                         </p>
@@ -1542,8 +1550,16 @@ export default function ExpertView(p: ExpertViewProps) {
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4 mb-4">
                 <div className="stat-card bg-white border border-gray-100 rounded-2xl p-4">
-                  <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Total spent</p>
-                  <p className="text-lg font-semibold text-black mt-1 tabular-nums truncate">{fmtFull(p.thisMonthTotal)}</p>
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Total spent</p>
+                    <button onClick={() => p.setShowExpenses(v => !v)} title={p.showExpenses ? 'Hide expenses' : 'Show expenses'}
+                      className="text-gray-300 hover:text-black transition-colors">
+                      {p.showExpenses ? <EyeOff size={13} /> : <Eye size={13} />}
+                    </button>
+                  </div>
+                  {p.showExpenses
+                    ? <p className="text-lg font-semibold text-black mt-1 tabular-nums truncate">{fmtFull(p.thisMonthTotal)}</p>
+                    : <p className="text-lg font-semibold text-gray-300 mt-1 tracking-widest select-none">••••••</p>}
                 </div>
                 <div className="stat-card bg-white border border-gray-100 rounded-2xl p-4">
                   <p className="text-xs text-gray-400 uppercase tracking-wide font-medium">Daily average</p>
