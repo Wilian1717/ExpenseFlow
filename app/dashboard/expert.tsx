@@ -106,7 +106,7 @@ function BarsChart({ data, max, selectedKey, onSelectKey, height = 208 }: {
         </div>
       )}
       {/* Recessive gridlines behind the bars; last line is the baseline */}
-      <div className="absolute inset-x-0 top-0 bottom-[21px] pointer-events-none flex flex-col justify-between">
+      <div className="absolute inset-x-0 top-0 bottom-5.25 pointer-events-none flex flex-col justify-between">
         <div className="border-t border-gray-100" />
         <div className="border-t border-gray-100" />
         <div className="border-t border-gray-100" />
@@ -124,8 +124,8 @@ function BarsChart({ data, max, selectedKey, onSelectKey, height = 208 }: {
               {isCurrent && hover === null && m.total > 0 && (
                 <span className="text-[10px] font-semibold text-emerald-700 tabular-nums whitespace-nowrap">{fmtFull(m.total)}</span>
               )}
-              <div className={`w-full max-w-[42px] rounded-t-lg transition-all duration-300 ${
-                isCurrent || isHover ? 'bg-gradient-to-t from-emerald-600 to-emerald-400' : 'bg-emerald-200/70 hover:bg-emerald-200'
+              <div className={`w-full max-w-10.5 rounded-t-lg transition-all duration-300 ${
+                isCurrent || isHover ? 'bg-linear-to-t from-emerald-600 to-emerald-400' : 'bg-emerald-200/70 hover:bg-emerald-200'
               }`} style={{ height: `${h}%` }} />
               <span className={`text-[10px] ${isCurrent ? 'text-black font-medium' : 'text-gray-400'}`}>{m.label}</span>
             </div>
@@ -163,9 +163,9 @@ function GroupedBars({ rows, height = 208 }: {
           return (
             <div key={i} className="flex-1 h-full flex flex-col justify-end items-center gap-1.5 cursor-default"
               onMouseEnter={() => setHover(i)} onMouseLeave={() => setHover(null)}>
-              <div className={`w-full h-full flex items-end justify-center gap-[3px] transition-opacity duration-200 ${dim ? 'opacity-40' : ''}`}>
-                <div className="w-full max-w-[16px] rounded-t bg-emerald-500 transition-all duration-300" style={{ height: `${hInc}%` }} />
-                <div className="w-full max-w-[16px] rounded-t bg-gray-900 transition-all duration-300" style={{ height: `${hExp}%` }} />
+              <div className={`w-full h-full flex items-end justify-center gap-0.75 transition-opacity duration-200 ${dim ? 'opacity-40' : ''}`}>
+                <div className="w-full max-w-4 rounded-t bg-emerald-500 transition-all duration-300" style={{ height: `${hInc}%` }} />
+                <div className="w-full max-w-4 rounded-t bg-gray-900 transition-all duration-300" style={{ height: `${hExp}%` }} />
               </div>
               <span className="text-[10px] text-gray-400">{r.label}</span>
             </div>
@@ -301,7 +301,7 @@ function BalanceTrendChart({ series, monthKey, height = 132 }: {
   return (
     <div className="w-full">
       <div className="flex gap-2.5">
-        <div className="flex flex-col justify-between text-right shrink-0 py-0.5 w-14 sm:w-[70px]" style={{ height }}>
+        <div className="flex flex-col justify-between text-right shrink-0 py-0.5 w-14 sm:w-17.5" style={{ height }}>
           {[...yTicks].reverse().map((t, i) => (
             <span key={i} className="text-[9px] sm:text-[10px] text-gray-400 tabular-nums leading-none whitespace-nowrap">{fmtFull(t)}</span>
           ))}
@@ -632,10 +632,10 @@ function GoalCard({ goal, onOpen }: { goal: SavingsGoal; onOpen: () => void }) {
   let daysLeft: number | null = null
   if (goal.deadline) daysLeft = Math.ceil((new Date(goal.deadline).getTime() - Date.now()) / 86_400_000)
   const fillClass = done
-    ? 'bg-gradient-to-r from-emerald-400 to-green-500'
-    : pct >= 75 ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
-    : pct >= 40 ? 'bg-gradient-to-r from-amber-400 to-orange-400'
-    : 'bg-gradient-to-r from-rose-300 to-pink-400'
+    ? 'bg-linear-to-r from-emerald-400 to-green-500'
+    : pct >= 75 ? 'bg-linear-to-r from-blue-500 to-indigo-500'
+    : pct >= 40 ? 'bg-linear-to-r from-amber-400 to-orange-400'
+    : 'bg-linear-to-r from-rose-300 to-pink-400'
   return (
     <div onClick={onOpen} className="border border-gray-100 rounded-xl p-4 hover:border-gray-300 hover:bg-gray-50/50 transition-all cursor-pointer group bg-white">
       <div className="flex items-start justify-between gap-2 mb-2">
@@ -865,7 +865,7 @@ export default function ExpertView(p: ExpertViewProps) {
           <span className={section === item.key ? 'text-black' : 'text-gray-500'}>{item.icon}</span>
           {item.label}
           {item.key === 'bills' && p.billsDueSoon > 0 && (
-            <span className={`ml-auto rounded-full text-[9px] min-w-[16px] h-4 px-1 flex items-center justify-center font-semibold ${
+            <span className={`ml-auto rounded-full text-[9px] min-w-4 h-4 px-1 flex items-center justify-center font-semibold ${
               section === item.key ? 'bg-black text-white' : 'bg-amber-500 text-white'
             }`}>{p.billsDueSoon}</span>
           )}
@@ -962,7 +962,7 @@ export default function ExpertView(p: ExpertViewProps) {
   )
 
   return (
-    <div className="min-h-screen bg-[var(--ef-page)] lg:flex">
+    <div className="min-h-screen bg-(--ef-page) lg:flex">
       {/* ── Sidebar (desktop) ── */}
       <aside className="ef-keep hidden lg:flex flex-col w-60 shrink-0 bg-[#0a0a0a] sticky top-0 h-screen">
         <div className="px-5 pt-6 pb-4">
@@ -979,7 +979,7 @@ export default function ExpertView(p: ExpertViewProps) {
 
       {/* ── Mobile drawer ── */}
       {drawerOpen && (
-        <div className="lg:hidden fixed inset-0 z-[250] flex" onClick={() => setDrawerOpen(false)}>
+        <div className="lg:hidden fixed inset-0 z-250 flex" onClick={() => setDrawerOpen(false)}>
           <div className="absolute inset-0 bg-black/40" />
           <div className="ef-keep relative bg-[#0a0a0a] w-64 max-w-[80%] h-full flex flex-col shadow-xl animate-slide-up" onClick={e => e.stopPropagation()}>
             <div className="px-5 pt-6 pb-4">
@@ -1045,7 +1045,7 @@ export default function ExpertView(p: ExpertViewProps) {
           </div>
         </header>
 
-        <div key={section} className="px-4 sm:px-6 lg:px-8 py-6 max-w-[1400px] mx-auto animate-slide-up">
+        <div key={section} className="px-4 sm:px-6 lg:px-8 py-6 max-w-350 mx-auto animate-slide-up">
 
           {/* ════════════════ DASHBOARD ════════════════ */}
           {section === 'dashboard' && (
@@ -1728,7 +1728,7 @@ export default function ExpertView(p: ExpertViewProps) {
                         <p className="text-base font-semibold text-black tracking-tight">Your Budgets</p>
                         <p className="text-xs text-gray-500 mt-0.5">Stay on track with your monthly plan</p>
                       </div>
-                      <div className="grid grid-cols-3 flex-[2] basis-80 min-w-0">
+                      <div className="grid grid-cols-3 flex-2 basis-80 min-w-0">
                         {[
                           { label: 'Total budgeted', value: totalBudget },
                           { label: 'Total used', value: totalUsed },
@@ -1823,7 +1823,7 @@ export default function ExpertView(p: ExpertViewProps) {
                     <span className="text-xs font-semibold text-black tabular-nums">{Math.min((goalsSaved / goalsTarget) * 100, 100).toFixed(0)}%</span>
                   </div>
                   <div className="bg-gray-100 rounded-full h-2.5 overflow-hidden">
-                    <div className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-green-400 transition-all duration-700" style={{ width: `${Math.min((goalsSaved / goalsTarget) * 100, 100)}%` }} />
+                    <div className="h-full rounded-full bg-linear-to-r from-emerald-500 to-green-400 transition-all duration-700" style={{ width: `${Math.min((goalsSaved / goalsTarget) * 100, 100)}%` }} />
                   </div>
                 </Card>
               )}
@@ -1838,7 +1838,7 @@ export default function ExpertView(p: ExpertViewProps) {
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4">
                   {p.savingsGoals.map(g => <GoalCard key={g.id} goal={g} onOpen={() => p.setOpenGoal(g)} />)}
                   <button onClick={() => p.setShowAddGoal(true)}
-                    className="border border-dashed border-gray-200 rounded-xl p-4 min-h-[120px] flex flex-col items-center justify-center gap-2 text-gray-300 hover:text-gray-500 hover:border-gray-400 transition-all">
+                    className="border border-dashed border-gray-200 rounded-xl p-4 min-h-30 flex flex-col items-center justify-center gap-2 text-gray-300 hover:text-gray-500 hover:border-gray-400 transition-all">
                     <Plus size={20} />
                     <span className="text-xs font-medium">New goal</span>
                   </button>

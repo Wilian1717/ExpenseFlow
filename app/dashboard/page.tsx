@@ -234,10 +234,10 @@ function GoalDetailModal({ goal, history, onClose, onAddFunds, onDeleteHistory, 
         <div className="px-5 pt-3 pb-0">
           <div className="bg-gray-100 rounded-full h-2.5 overflow-hidden mb-1">
             <div className={`h-full rounded-full transition-all duration-700 ${
-              done ? 'bg-gradient-to-r from-emerald-400 to-green-500' :
-              pct >= 75 ? 'bg-gradient-to-r from-blue-500 to-indigo-500' :
-              pct >= 40 ? 'bg-gradient-to-r from-amber-400 to-orange-400' :
-              'bg-gradient-to-r from-rose-400 to-pink-400'
+              done ? 'bg-linear-to-r from-emerald-400 to-green-500' :
+              pct >= 75 ? 'bg-linear-to-r from-blue-500 to-indigo-500' :
+              pct >= 40 ? 'bg-linear-to-r from-amber-400 to-orange-400' :
+              'bg-linear-to-r from-rose-400 to-pink-400'
             }`} style={{ width: `${pct}%` }} />
           </div>
           <div className="flex justify-between">
@@ -736,7 +736,7 @@ function BatchExpenseEditor({ onClose, onSave, pools, pastExpenses, poolEntries,
             </div>
             <button onClick={onClose} title="Close" className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-100 text-gray-400 hover:text-black transition-all"><X size={16} /></button>
           </div>
-          <div className="sm:max-w-[260px]">{modeSwitch}</div>
+          <div className="sm:max-w-65">{modeSwitch}</div>
 
           {/* This week — sets the date of the selected row */}
           <div className="flex items-center justify-between gap-2 mb-2">
@@ -834,7 +834,7 @@ function BatchExpenseEditor({ onClose, onSave, pools, pastExpenses, poolEntries,
                     )}
                     {/* Budget pill */}
                     {pools.length > 0 && (
-                      <label className={`relative inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-medium cursor-pointer max-w-[170px] transition-colors ${
+                      <label className={`relative inline-flex items-center gap-1 h-7 px-2.5 rounded-full text-[11px] font-medium cursor-pointer max-w-42.5 transition-colors ${
                         linked ? 'bg-amber-50 text-amber-800 border border-amber-200' : 'border border-dashed border-gray-300 text-gray-500 hover:border-gray-400'}`}>
                         {linked ? <Lock size={10} className="shrink-0" /> : <Plus size={11} className="shrink-0" />}
                         <span className="truncate">{linked ? linked.title : 'Budget'}</span>
@@ -1546,7 +1546,7 @@ function DayDetailModal({
                     <span className="text-[11px] text-gray-400 shrink-0 whitespace-nowrap">{fmt(s.spent)}</span>
                   </div>
                 ))}
-                {catSlices.length > 5 && <p className="text-[10px] text-gray-300 pl-[88px]">+{catSlices.length - 5} more</p>}
+                {catSlices.length > 5 && <p className="text-[10px] text-gray-300 pl-22">+{catSlices.length - 5} more</p>}
               </div>
             )}
 
@@ -2753,7 +2753,7 @@ function BudgetSimulatorModal({
                       <div key={r.id} className="flex items-center justify-between">
                         <div className="flex items-center gap-1.5">
                           <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${CATEGORY_CONFIG[r.category].bg} ${CATEGORY_CONFIG[r.category].text}`}>{FREQ_LABELS[r.frequency]}</span>
-                          <span className="text-xs text-gray-600 truncate max-w-[160px]">{r.title}</span>
+                          <span className="text-xs text-gray-600 truncate max-w-40">{r.title}</span>
                         </div>
                         <span className="text-xs text-gray-500 shrink-0">{fmt(Math.round(monthly))}/mo</span>
                       </div>
@@ -3157,7 +3157,7 @@ function SettingsModal({ value, onChange, theme, onThemeChange, openDefaults, on
   onClose: () => void
 }) {
   return (
-    <div className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0" onClick={onClose}>
+    <div className="fixed inset-0 z-300 flex items-end sm:items-center justify-center bg-black/30 px-4 pb-4 sm:pb-0" onClick={onClose}>
       <div className="bg-white rounded-2xl w-full max-w-sm p-5 shadow-xl animate-slide-up max-h-[88vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold text-black flex items-center gap-2"><Settings size={16} /> Settings</h3>
@@ -4330,7 +4330,7 @@ export default function Dashboard() {
           onLogout={handleLogout}
         />
       ) : (
-      <div className="ef-canvas min-h-screen bg-[var(--ef-page)]">
+      <div className="ef-canvas min-h-screen bg-(--ef-page)">
         {/* ── Sticky Top Bar ── */}
         <header className="ef-header sticky top-0 z-40 bg-white/90 backdrop-blur-md border-b border-gray-100">
           <div className="max-w-2xl mx-auto px-4 sm:px-5 py-2.5">
@@ -4365,7 +4365,7 @@ export default function Dashboard() {
                   <MoreHorizontal size={15} />
                 </button>
                 {deskMenuOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-lg z-[200] py-1.5 animate-slide-up">
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-lg z-200 py-1.5 animate-slide-up">
                     <button onClick={() => { setShowSimulator(true); setDeskMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><Calculator size={14} className="text-purple-500" /> Budget Simulator</button>
                     <button onClick={() => { setShowAddBill(true); setDeskMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><CreditCard size={14} className="text-blue-500" /> Add Bill</button>
                     <button onClick={() => { exportCSV(expenses, income, selectedMonth); setDeskMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><Download size={14} className="text-gray-500" /> Export CSV</button>
@@ -4387,7 +4387,7 @@ export default function Dashboard() {
                   <Menu size={15} />
                 </button>
                 {menuOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-lg z-[200] py-1.5 animate-slide-up">
+                  <div className="absolute right-0 top-full mt-2 w-48 bg-white border border-gray-100 rounded-2xl shadow-lg z-200 py-1.5 animate-slide-up">
                     <button onClick={() => { exportCSV(expenses, income, selectedMonth); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><Download size={14} className="text-gray-500" /> Export CSV</button>
                     <button onClick={() => { setShowAddIncome(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><ArrowUpCircle size={14} className="text-green-600" /> Add Income</button>
                     <button onClick={() => { setShowAddExpense(true); setMenuOpen(false) }} className="w-full flex items-center gap-2.5 px-3.5 py-2 text-sm text-gray-700 hover:bg-gray-50"><ArrowDownCircle size={14} /> Add Expense</button>
@@ -4450,7 +4450,7 @@ export default function Dashboard() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 mb-2.5">
               {/* Total balance card */}
               <div className="ef-keep relative overflow-hidden rounded-2xl ring-1 ring-[#ffffff12] bg-linear-to-br from-[#1c1c1c] via-black to-[#0a0a0a] px-4 py-4 shadow-[0_12px_30px_-12px_rgba(0,0,0,0.45)]">
-                <div aria-hidden="true" className="pointer-events-none absolute -right-16 -bottom-24 w-72 h-48 rotate-[-18deg] rounded-[40%] bg-linear-to-tr from-transparent via-white/[0.05] to-white/[0.10]" />
+                <div aria-hidden="true" className="pointer-events-none absolute -right-16 -bottom-24 w-72 h-48 rotate-[-18deg] rounded-[40%] bg-linear-to-tr from-transparent via-white/5 to-white/10" />
                 <div className="relative flex items-center justify-between mb-2.5">
                   <p className="text-[10px] text-white/70 font-semibold uppercase tracking-[0.15em]">Total balance</p>
                   <button
@@ -4679,12 +4679,12 @@ export default function Dashboard() {
               {calHelpOpen && (() => {
                 const sq = 'w-3.5 h-3.5 rounded-[4px] shrink-0'
                 const items: { visual: React.ReactNode; label: string }[] = [
-                  { visual: <span className="flex gap-[2px]">{HEAT_COLORS.slice(1).map((c, i) => <span key={i} className="w-2 h-3.5 rounded-[2px]" style={{ backgroundColor: c }} />)}</span>, label: 'Darker = spent more' },
+                  { visual: <span className="flex gap-0.5">{HEAT_COLORS.slice(1).map((c, i) => <span key={i} className="w-2 h-3.5 rounded-xs" style={{ backgroundColor: c }} />)}</span>, label: 'Darker = spent more' },
                   { visual: <span className={sq} style={{ backgroundColor: HEAT_COLORS[0] }} />, label: 'No spending' },
                   { visual: <span className={sq} style={{ background: 'var(--heat-future)', border: '1px solid var(--ef-line)' }} />, label: 'Day not here yet' },
                   { visual: <span className={sq} style={{ backgroundColor: HEAT_COLORS[2], boxShadow: '0 0 0 1.5px var(--ef-surface), 0 0 0 2.5px var(--ef-ink)' }} />, label: 'Today' },
                   { visual: <span className="text-[10px] font-semibold text-gray-500 tabular-nums leading-none">Rp</span>, label: 'Week total' },
-                  { visual: <span className="flex items-end gap-[3px] h-3.5">{[6, 10, 14].map((h, i) => <span key={i} className="w-1 rounded-full" style={{ height: h, backgroundColor: i === 2 ? HEAT_COLORS[4] : HEAT_COLORS[1] }} />)}</span>, label: 'Weekday average' },
+                  { visual: <span className="flex items-end gap-0.75 h-3.5">{[6, 10, 14].map((h, i) => <span key={i} className="w-1 rounded-full" style={{ height: h, backgroundColor: i === 2 ? HEAT_COLORS[4] : HEAT_COLORS[1] }} />)}</span>, label: 'Weekday average' },
                 ]
                 return (
                   <div className="animate-slide-up mt-3 rounded-2xl bg-gray-50 px-4 py-3.5">
@@ -5314,10 +5314,10 @@ export default function Dashboard() {
                   let daysLeft: number | null = null
                   if (goal.deadline) daysLeft = Math.ceil((new Date(goal.deadline).getTime() - Date.now()) / 86_400_000)
                   const fillClass = done
-                    ? 'bg-gradient-to-r from-emerald-400 to-green-500'
-                    : pct >= 75 ? 'bg-gradient-to-r from-blue-500 to-indigo-500'
-                    : pct >= 40 ? 'bg-gradient-to-r from-amber-400 to-orange-400'
-                    : 'bg-gradient-to-r from-rose-300 to-pink-400'
+                    ? 'bg-linear-to-r from-emerald-400 to-green-500'
+                    : pct >= 75 ? 'bg-linear-to-r from-blue-500 to-indigo-500'
+                    : pct >= 40 ? 'bg-linear-to-r from-amber-400 to-orange-400'
+                    : 'bg-linear-to-r from-rose-300 to-pink-400'
                   const dotColor = done ? 'bg-emerald-500' : pct >= 75 ? 'bg-blue-500' : pct >= 40 ? 'bg-amber-400' : 'bg-rose-300'
                   return (
                     <div key={goal.id} onClick={() => setOpenGoal(goal)}

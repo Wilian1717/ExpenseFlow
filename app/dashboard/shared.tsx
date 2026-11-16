@@ -420,7 +420,7 @@ export function MonthPickerDropdown({ months, selected, onChange, variant = 'def
       )}
 
       {open && (
-        <div className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-2 w-52 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-[500] animate-slide-up`}>
+        <div className={`absolute ${align === 'right' ? 'right-0' : 'left-0'} top-full mt-2 w-52 bg-white rounded-2xl shadow-2xl border border-gray-100 overflow-hidden z-500 animate-slide-up`}>
           <div className="px-3 pt-3 pb-1">
             <p className="text-[10px] font-semibold text-gray-400 uppercase tracking-widest">Select month</p>
           </div>
@@ -737,7 +737,7 @@ export function SpendingHeatmap({
         onBlur={() => setHover(h => h === d.day ? null : h)}
         onKeyDown={e => onKeyDown(e, d.day)}
         onClick={() => onSelectDay?.(d.day)}
-        className={`${common} ${onDark ? 'text-white' : lvl === 0 ? 'text-gray-500' : 'text-[var(--heat-ink)]'} ${onSelectDay ? 'cursor-pointer' : 'cursor-default'} focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black`}
+        className={`${common} ${onDark ? 'text-white' : lvl === 0 ? 'text-gray-500' : 'text-(--heat-ink)'} ${onSelectDay ? 'cursor-pointer' : 'cursor-default'} focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black`}
         style={{
           animationDelay: `${0.012 * i}s`,
           backgroundColor: HEAT_COLORS[lvl],
@@ -749,7 +749,7 @@ export function SpendingHeatmap({
   }
 
   return (
-    <div className={`w-full mx-auto ${compact ? (showWeekTotals ? 'max-w-[340px]' : 'max-w-[300px]') : 'max-w-[520px]'}`}>
+    <div className={`w-full mx-auto ${compact ? (showWeekTotals ? 'max-w-85' : 'max-w-75') : 'max-w-130'}`}>
       <div className="relative" ref={gridRef}>
         {/* Tooltip — owned by the grid so it can escape individual cells */}
         {hoverDay && (
@@ -836,7 +836,7 @@ export function WeekdayBars({ stats, size = 'compact', withWeekColumn = false, s
   const totalW = withWeekColumn ? `(3.5rem + ${compact ? 0.25 : 0.375}rem)` : '0rem'
 
   return (
-    <div className={`w-full mx-auto ${compact ? (withWeekColumn ? 'max-w-[340px]' : 'max-w-[300px]') : 'max-w-[520px]'} mt-3`}>
+    <div className={`w-full mx-auto ${compact ? (withWeekColumn ? 'max-w-85' : 'max-w-75') : 'max-w-130'} mt-3`}>
       <div className="relative">
         {hover !== null && stats[hover].occurrences > 0 && (
           <div className="absolute px-2 py-1 rounded-md bg-black text-white text-[11px] font-medium whitespace-nowrap pointer-events-none -translate-x-1/2 z-10 -top-1"
@@ -971,7 +971,7 @@ export function SpendingPaceChart({ thisSeries, lastSeries, daysInMonth }: {
 
       <div className="flex items-center justify-center gap-4 mt-2.5">
         <span className="flex items-center gap-1.5 text-[10px] text-gray-500">
-          <span className="w-3.5 h-[2px] rounded-full bg-[#30a14e]" /> This month
+          <span className="w-3.5 h-0.5 rounded-full bg-[#30a14e]" /> This month
         </span>
         {hasLast && (
           <span className="flex items-center gap-1.5 text-[10px] text-gray-500">
