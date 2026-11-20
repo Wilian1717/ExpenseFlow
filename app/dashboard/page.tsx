@@ -3461,7 +3461,8 @@ export default function Dashboard() {
     if (links.length > 0) {
       const { data: entries, error: e2 } = await supabase.from('expense_pool_entries').insert(links.map(({ it, exp }) => ({
         pool_id: it.poolId, user_id: user.id, amount: it.amount, month: it.date.slice(0, 7),
-        note: it.title, expense_id: exp.id, created_at: localISOString(),
+        // Same timestamp as its expense, so the budget's history shows the date picked in the row (not today)
+        note: it.title, expense_id: exp.id, created_at: exp.created_at,
       }))).select()
       if (e2 || !entries) return { ok: true, warning: `${inserted.length} expenses were saved, but linking ${links.length} of them to budgets failed. You can log those budgets manually.` }
       setPoolEntries(prev => [...(entries as ExpensePoolEntry[]), ...prev])
