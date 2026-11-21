@@ -5,8 +5,29 @@ import { MotionConfig, animate, motion, useInView, useReducedMotion } from 'fram
 
 export const EASE = [0.22, 1, 0.36, 1] as const
 
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+
+// Glide back to the top (used by the logo, which links to the page you're already on)
+export function scrollToTop(e?: React.MouseEvent) {
+  if (window.location.pathname !== '/') return          // on other pages, let the link navigate home
+  e?.preventDefault()
+  window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? 'auto' : 'smooth' })
+  history.replaceState(null, '', '/')                   // drop any #section from the URL
+}
+
 // Respects prefers-reduced-motion for every framer-motion animation below it
 export function LandingMotion({ children }: { children: React.ReactNode }) {
+  // Smooth scrolling for #section links, only while the landing page is mounted
+  // (so the dashboard and other pages keep normal scrolling) and never for reduced motion
+  useEffect(() => {
+    if (prefersReducedMotion()) return
+    const html = document.documentElement
+    const prev = html.style.scrollBehavior
+    html.style.scrollBehavior = 'smooth'
+    return () => { html.style.scrollBehavior = prev }
+  }, [])
+
   return (
     <MotionConfig reducedMotion="user" transition={{ ease: EASE, duration: 0.8 }}>
       {children}

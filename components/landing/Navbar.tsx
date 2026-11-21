@@ -5,7 +5,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowRight, Menu, X } from 'lucide-react'
-import { EASE } from './motion'
+import { EASE, scrollToTop } from './motion'
 import { BTN_PRIMARY, BTN_SECONDARY, CONTAINER } from './ui'
 import styles from './landing.module.css'
 
@@ -15,9 +15,9 @@ const LINKS = [
   { label: 'About', href: '#about' },
 ]
 
-export function Logo({ size = 28 }: { size?: number }) {
+export function Logo({ size = 28, onClick }: { size?: number; onClick?: () => void }) {
   return (
-    <Link href="/" aria-label="ExpenseFlow home"
+    <Link href="/" aria-label="ExpenseFlow home" onClick={e => { onClick?.(); scrollToTop(e) }}
       className="inline-flex min-h-11 items-center gap-2.5 rounded-lg focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white">
       {/* White version of the real logo (public/logo2.png) for the dark theme */}
       <Image src="/logo2.png" alt="" width={size} height={size} className="shrink-0" priority />
@@ -55,7 +55,7 @@ export default function Navbar() {
         glass ? 'border-white/8 bg-[#0A0A0A]/70 backdrop-blur-xl' : 'border-transparent bg-transparent'}`}
     >
       <nav aria-label="Main" className={`${CONTAINER} flex h-16 items-center justify-between`}>
-        <Logo />
+        <Logo onClick={() => setOpen(false)} />
 
         <ul className="hidden items-center gap-8 md:flex">
           {LINKS.map(l => (

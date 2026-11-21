@@ -12,15 +12,20 @@ const STEPS = [
 ]
 
 // Outlined number that draws itself in
-function StepNumber({ n, play, delay }: { n: string; play: boolean; delay: number }) {
+// Dash length is longer than any digit's outline, so every number finishes drawing
+const DASH = 1000
+
+function StepNumber({ n, delay }: { n: string; delay: number }) {
+  const ref = useRef<SVGSVGElement>(null)
+  const play = useInView(ref, { once: true, margin: '-40px' })
   return (
-    <svg viewBox="0 0 60 80" className="h-16 w-12 shrink-0 sm:h-20 sm:w-15" aria-hidden>
+    <svg ref={ref} viewBox="0 0 60 80" className="h-16 w-12 shrink-0 sm:h-20 sm:w-15" aria-hidden>
       <motion.text x="50%" y="66" textAnchor="middle"
         className={`${DISPLAY}`} fontSize="76" fontWeight="300"
         fill="none" stroke="rgba(255,255,255,0.85)" strokeWidth="1.2"
-        strokeDasharray="420" initial={{ strokeDashoffset: 420 }}
+        strokeDasharray={DASH} initial={{ strokeDashoffset: DASH }}
         animate={play ? { strokeDashoffset: 0 } : {}}
-        transition={{ duration: 1.6, delay, ease: EASE }}>
+        transition={{ duration: 2.2, delay, ease: EASE }}>
         {n}
       </motion.text>
     </svg>
@@ -49,7 +54,7 @@ export default function HowItWorks() {
               initial={{ opacity: 0, y: 20 }} animate={inView ? { opacity: 1, y: 0 } : {}}
               transition={{ duration: 0.8, delay: i * 0.15, ease: EASE }}
               className="relative flex items-start gap-4 bg-[#0A0A0A] md:pr-4">
-              <StepNumber n={s.n} play={inView} delay={0.2 + i * 0.2} />
+              <StepNumber n={s.n} delay={0.15 + i * 0.15} />
               <div className="pt-3">
                 <h3 className="text-base font-semibold text-white">{s.title}</h3>
                 <p className="mt-1.5 text-sm text-white/55">{s.text}</p>

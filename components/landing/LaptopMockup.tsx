@@ -8,7 +8,7 @@ import { EASE, idDecimal, useCountUp, useIsDesktop } from './motion'
 
 // Final resting tilt on desktop (mobile stays flat so it fits and stays readable)
 const TILT_X = 9
-const TILT_Y = -15
+const TILT_Y = -12
 
 const BARS = [38, 62, 45, 80, 55, 92, 48, 70, 86, 58, 74, 96, 66]
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']
@@ -80,11 +80,17 @@ export default function LaptopMockup() {
       <div aria-hidden className="pointer-events-none absolute inset-x-[12%] -bottom-6 h-20 rounded-full bg-white/25 blur-3xl" />
 
       <motion.div style={{ rotateX, rotateY, transformStyle: 'preserve-3d' }} className="relative will-change-transform">
-        {/* Screen + metallic bezel */}
-        <div className="rounded-[18px] bg-linear-to-b from-[#3d3d40] via-[#1d1d1f] to-[#111113] p-[1.6%] shadow-[0_40px_80px_-30px_rgba(0,0,0,0.9),inset_0_1px_0_rgba(255,255,255,0.18)] ring-1 ring-white/15">
-          <div className="@container relative aspect-16/10 overflow-hidden rounded-[10px] bg-[#0B0B0C] text-white">
-            {/* subtle screen reflection */}
-            <div aria-hidden className="pointer-events-none absolute inset-0 bg-linear-to-br from-white/7 via-transparent to-transparent" />
+        {/* Lid: thin brushed-aluminium rim around a black glass bezel */}
+        <div className="rounded-[20px] bg-linear-to-b from-[#e4e6ea] via-[#8d9198] to-[#4a4d53] p-0.5 shadow-[0_50px_90px_-35px_rgba(0,0,0,0.95)] sm:p-0.75">
+        <div className="relative rounded-[18px] bg-[#050506] px-[1.8%] pb-[2.4%] pt-[2.6%] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_0_rgba(255,255,255,0.12)]">
+          {/* camera */}
+          <span aria-hidden className="absolute left-1/2 top-[0.9%] h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-[#1c1d20] ring-1 ring-white/10 sm:top-[1.1%]">
+            <span className="absolute inset-[30%] rounded-full bg-[#2f3a4a]" />
+          </span>
+          <div className="@container relative aspect-16/10 overflow-hidden rounded-md bg-[#0B0B0C] text-white">
+            {/* glass glare: soft diagonal sweep + a thin bright top edge */}
+            <div aria-hidden className="pointer-events-none absolute inset-0 z-10 bg-[linear-gradient(115deg,rgba(255,255,255,0.10)_0%,rgba(255,255,255,0.03)_28%,transparent_42%,transparent_70%,rgba(255,255,255,0.04)_100%)]" />
+            <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 z-10 h-px bg-white/15" />
 
             <div className="flex h-full gap-[2cqw] p-[2.2cqw]">
               {/* Sidebar (hidden when the screen is small, e.g. on phones) */}
@@ -173,11 +179,45 @@ export default function LaptopMockup() {
           </div>
         </div>
 
-        {/* Metallic base */}
-        <div className="relative mx-[-5%] h-2.5 rounded-b-[14px] bg-linear-to-b from-[#e5e7eb] via-[#9ca3af] to-[#4b5563] shadow-[0_18px_30px_-12px_rgba(0,0,0,0.8)] sm:h-3.5">
-          <div className="absolute left-1/2 top-0 h-[40%] w-[14%] -translate-x-1/2 rounded-b-md bg-[#6b7280]/60" />
+        </div>
+
+        {/* Hinge */}
+        <div aria-hidden className="relative mx-[2%] h-1.5 rounded-b-sm bg-linear-to-b from-[#0b0b0c] via-[#2a2c30] to-[#55585e]" />
+
+        {/* Keyboard deck: a real 3D plane folding toward the viewer. Positioned
+            absolutely so its unrotated height doesn't take up layout space.
+            Kept only slightly wider than the lid so perspective can't blow it up. */}
+        <div aria-hidden className="absolute inset-x-[-2.5%] top-full" style={{ transformStyle: 'preserve-3d' }}>
+          <div className="relative origin-top rounded-b-[12px] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+            style={{
+              transform: `rotateX(${tilt ? 83 : 87}deg)`, aspectRatio: '16 / 5.6', transformStyle: 'preserve-3d',
+              // polished aluminium
+              background: 'linear-gradient(180deg, #f6f7f9 0%, #dfe2e6 20%, #bcc0c6 58%, #9ea3aa 100%)',
+            }}>
+            {/* specular sheen across the metal */}
+            <div className="absolute inset-0 rounded-b-[12px]" style={{ background: 'linear-gradient(100deg, transparent 18%, rgba(255,255,255,0.65) 42%, rgba(255,255,255,0.15) 52%, transparent 66%)' }} />
+            {/* keyboard well with individual keycaps */}
+            <div className="absolute inset-x-[11%] top-[9%] h-[52%] rounded-[6px] bg-[#2b2d31] shadow-[inset_0_1px_2px_rgba(0,0,0,0.6)]"
+              style={{
+                backgroundImage:
+                  'repeating-linear-gradient(90deg, transparent 0, transparent calc(100% / 15 - 2px), #0b0c0e calc(100% / 15 - 2px), #0b0c0e calc(100% / 15)),' +
+                  'repeating-linear-gradient(0deg, transparent 0, transparent calc(100% / 5 - 2px), #0b0c0e calc(100% / 5 - 2px), #0b0c0e calc(100% / 5)),' +
+                  'linear-gradient(180deg, rgba(255,255,255,0.10), transparent 60%)',
+              }} />
+            {/* glossy trackpad */}
+            <div className="absolute bottom-[8%] left-1/2 h-[27%] w-[33%] -translate-x-1/2 rounded-[6px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.10),inset_0_1px_0_rgba(255,255,255,0.8)]"
+              style={{ background: 'linear-gradient(180deg, #d4d7db 0%, #b3b8be 100%)' }} />
+            {/* shiny front lip, standing upright at the near edge */}
+            <div className="absolute inset-x-0 top-full h-[5%] origin-top rounded-b-[12px]"
+              style={{ transform: 'rotateX(-90deg)', background: 'linear-gradient(180deg, #f0f2f5 0%, #a3a8af 45%, #55595f 100%)' }}>
+              <span className="absolute left-1/2 top-0 h-[40%] w-[15%] -translate-x-1/2 rounded-b-md bg-black/25" />
+            </div>
+          </div>
         </div>
       </motion.div>
+
+      {/* Contact shadow under the base */}
+      <div aria-hidden className="pointer-events-none mx-auto -mt-1 h-6 w-[96%] rounded-[50%] bg-black/70 blur-xl sm:h-8" />
     </motion.div>
   )
 }

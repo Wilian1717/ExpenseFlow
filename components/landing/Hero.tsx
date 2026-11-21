@@ -70,7 +70,7 @@ export default function Hero() {
           </motion.div>
         </div>
 
-        <div className="relative">
+        <div className="relative lg:pl-6">
           {/* Giant faded FLOW behind the laptop */}
           <motion.span aria-hidden style={{ y: flowY }}
             className={`${DISPLAY} pointer-events-none absolute -top-[18%] left-1/2 -translate-x-1/2 select-none bg-linear-to-b from-white/12 to-transparent bg-clip-text text-[34vw] font-black leading-none tracking-[-0.06em] text-transparent lg:-top-[34%] lg:text-[250px]`}>
