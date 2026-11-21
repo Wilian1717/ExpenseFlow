@@ -69,7 +69,8 @@ export default function LaptopMockup() {
       initial={{ opacity: 0, y: 60 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 1.1, delay: 0.45, ease: EASE }}
-      className="relative mx-auto w-full max-w-160"
+      // Narrower on phones so the lid and keyboard deck never touch the screen edges
+      className="relative mx-auto w-[84%] max-w-160 sm:w-full"
       style={{ perspective: 1600 }}
       onMouseMove={onMove}
       onMouseLeave={onLeave}
