@@ -5,18 +5,15 @@ import Link from 'next/link'
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { ArrowRight, Play } from 'lucide-react'
 import LaptopMockup from './LaptopMockup'
-import { EASE, useIsDesktop } from './motion'
+import { useIsDesktop } from './motion'
 import { BTN_PRIMARY, BTN_SECONDARY, CONTAINER, DISPLAY } from './ui'
 import styles from './landing.module.css'
 
 const LINES = ['Your money,', 'finally under', 'control.']
 
-// Badge / subtext / buttons: rise with a blur-to-sharp settle
-const rise = (delay: number) => ({
-  initial: { opacity: 0, y: 16, filter: 'blur(8px)' },
-  animate: { opacity: 1, y: 0, filter: 'blur(0px)' },
-  transition: { duration: 0.8, delay, ease: EASE },
-})
+// Entrance runs in CSS (landing.module.css) so it starts on first paint,
+// without waiting for JavaScript. This just staggers the start times.
+const delay = (s: number) => ({ animationDelay: `${s}s` })
 
 export default function Hero() {
   const ref = useRef<HTMLElement>(null)
@@ -29,37 +26,35 @@ export default function Hero() {
   return (
     <section ref={ref} id="top" aria-labelledby="hero-title"
       className="relative overflow-hidden bg-[#0A0A0A] pb-16 pt-28 sm:pt-32 lg:pb-24 lg:pt-36">
-      {/* Soft glows */}
-      <div aria-hidden className="pointer-events-none absolute -top-40 right-[-10%] h-155 w-155 rounded-full bg-white/7 blur-[120px]" />
-      <div aria-hidden className="pointer-events-none absolute left-[-15%] top-1/3 h-105 w-105 rounded-full bg-white/4 blur-[110px]" />
+      {/* Soft glows: radial gradients look the same as big blurs but cost nothing to paint */}
+      <div aria-hidden className="pointer-events-none absolute -top-72 right-[-25%] h-225 w-225 bg-[radial-gradient(closest-side,rgba(255,255,255,0.08),transparent)]" />
+      <div aria-hidden className="pointer-events-none absolute left-[-30%] top-1/4 h-160 w-160 bg-[radial-gradient(closest-side,rgba(255,255,255,0.045),transparent)]" />
 
       <div className={`${CONTAINER} relative grid items-center gap-14 lg:grid-cols-[1fr_1.15fr] lg:gap-10`}>
         <div className="relative z-10">
-          <motion.p {...rise(0.3)}
-            className="inline-flex min-h-8 items-center gap-2 rounded-full border border-white/12 bg-white/4 px-3.5 text-[13px] text-white/80">
+          <p style={delay(0.05)}
+            className={`${styles.rise} inline-flex min-h-8 items-center gap-2 rounded-full border border-white/12 bg-white/4 px-3.5 text-[13px] text-white/80`}>
             <span className="h-1.5 w-1.5 rounded-full bg-white" aria-hidden />
             Free forever · No credit card
-          </motion.p>
+          </p>
 
           <h1 id="hero-title"
             className={`${DISPLAY} mt-6 text-[46px] font-black leading-[0.95] tracking-[-0.04em] text-white sm:text-[64px] lg:text-[76px] xl:text-[84px]`}>
             {LINES.map((line, i) => (
               // Each line slides up from behind a mask
               <span key={line} className="block overflow-hidden pb-[0.08em]">
-                <motion.span className={`block ${i === 2 ? styles.silver : ''}`}
-                  initial={{ y: '110%' }} animate={{ y: '0%' }}
-                  transition={{ duration: 0.95, delay: 0.45 + i * 0.12, ease: EASE }}>
-                  {line}
-                </motion.span>
+                <span className={styles.lineUp} style={delay(0.1 + i * 0.08)}>
+                  <span className={i === 2 ? styles.silver : ''}>{line}</span>
+                </span>
               </span>
             ))}
           </h1>
 
-          <motion.p {...rise(0.85)} className="mt-6 max-w-md text-base leading-relaxed text-white/60 sm:text-lg">
+          <p style={delay(0.4)} className={`${styles.rise} mt-6 max-w-md text-base leading-relaxed text-white/60 sm:text-lg`}>
             Track spending, set budgets and hit your savings goals. Built for Indonesia, free for everyone.
-          </motion.p>
+          </p>
 
-          <motion.div {...rise(1)} className="mt-8 flex flex-col gap-3 sm:flex-row">
+          <div style={delay(0.5)} className={`${styles.rise} mt-8 flex flex-col gap-3 sm:flex-row`}>
             <Link href="/register" className={`${BTN_PRIMARY} ${styles.shine} min-h-12 px-6`}>
               Start tracking free
               <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
@@ -67,7 +62,7 @@ export default function Hero() {
             <a href="#how" className={`${BTN_SECONDARY} min-h-12 px-6`}>
               <Play size={14} className="fill-white" /> See how it works
             </a>
-          </motion.div>
+          </div>
         </div>
 
         <div className="relative lg:pl-6">

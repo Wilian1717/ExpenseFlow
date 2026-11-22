@@ -138,7 +138,7 @@ function Heatmap() {
   const inView = useInView(ref, { once: true, margin: '-40px' })
   return (
     <div ref={ref} className="mt-6">
-      <div className="grid max-w-[300px] grid-cols-7 gap-1.5">
+      <div className="grid max-w-75 grid-cols-7 gap-1.5">
         {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
           <span key={i} className={`${MONO} text-center text-[10px] text-white/35`}>{d}</span>
         ))}

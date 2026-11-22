@@ -3,9 +3,10 @@
 export const DISPLAY = 'font-(family-name:--font-display)'
 export const MONO = 'font-(family-name:--font-mono)'
 
-// Dark glass card with a faint inner top highlight
+// Dark glass card with a faint inner top highlight.
+// No backdrop-blur: it sits on a solid background, so blur was invisible but slow on iPhone.
 export const GLASS =
-  'relative rounded-2xl border border-white/8 bg-white/3 backdrop-blur-md shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
+  'relative rounded-2xl border border-white/8 bg-white/3 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]'
 
 export const CONTAINER = 'mx-auto w-full max-w-6xl px-5 sm:px-6 lg:px-8'
 

@@ -7,8 +7,7 @@
   inset: 0;
   z-index: 60;
   pointer-events: none;
-  opacity: 0.05;
-  mix-blend-mode: overlay;
+  opacity: 0.035;
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>");
 }
 
@@ -67,7 +66,26 @@
   50% { opacity: 0.55; transform: scale(0.9); }
 }
 
+/* Grain is a full-screen fixed layer: skip it on phones, where it costs scroll smoothness */
+@media (max-width: 767px) {
+  .grain { display: none; }
+}
+
+/* ─── Above-the-fold entrance (pure CSS) ─────────────────────────────────────
+   Runs on first paint, before any JavaScript loads, so the hero never sits
+   invisible waiting for hydration. Only opacity/transform are animated. */
+.enterDown { animation: enterDown 0.7s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.rise      { animation: rise 0.75s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.lineUp    { display: block; animation: lineUp 0.85s cubic-bezier(0.22, 1, 0.36, 1) both; }
+.laptopIn  { animation: laptopIn 1s cubic-bezier(0.22, 1, 0.36, 1) both; }
+
+@keyframes enterDown { from { opacity: 0; transform: translateY(-14px); } to { opacity: 1; transform: none; } }
+@keyframes rise      { from { opacity: 0; transform: translateY(14px); }  to { opacity: 1; transform: none; } }
+@keyframes lineUp    { from { transform: translateY(110%); }             to { transform: none; } }
+@keyframes laptopIn  { from { opacity: 0; transform: translateY(40px); }  to { opacity: 1; transform: none; } }
+
 @media (prefers-reduced-motion: reduce) {
+  .enterDown, .rise, .lineUp, .laptopIn { animation: none; }
   .silver, .borderSpin, .pulse { animation: none; }
   .shine:hover::after { transition: none; transform: translateX(-120%); }
 }

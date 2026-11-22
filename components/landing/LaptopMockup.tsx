@@ -5,6 +5,7 @@ import Image from 'next/image'
 import { animate, motion, useMotionValue, useReducedMotion, useSpring, useTransform } from 'framer-motion'
 import { LayoutGrid, Receipt, Wallet, CreditCard, Target, Lightbulb, Settings, Eye } from 'lucide-react'
 import { EASE, idDecimal, useCountUp, useIsDesktop } from './motion'
+import styles from './landing.module.css'
 
 // Final resting tilt on desktop (mobile stays flat so it fits and stays readable)
 const TILT_X = 9
@@ -42,14 +43,14 @@ export default function LaptopMockup() {
   const rotateY = useTransform(() => baseY.get() + mouseY.get())
 
   useEffect(() => {
-    const cx = animate(baseX, tilt ? TILT_X : 0, { duration: 1.3, delay: 0.5, ease: EASE })
-    const cy = animate(baseY, tilt ? TILT_Y : 0, { duration: 1.3, delay: 0.5, ease: EASE })
+    const cx = animate(baseX, tilt ? TILT_X : 0, { duration: 1.2, delay: 0.25, ease: EASE })
+    const cy = animate(baseY, tilt ? TILT_Y : 0, { duration: 1.2, delay: 0.25, ease: EASE })
     return () => { cx.stop(); cy.stop() }
   }, [tilt, baseX, baseY])
 
   // Dashboard contents start animating once the laptop has landed
   const [play, setPlay] = useState(false)
-  useEffect(() => { const t = setTimeout(() => setPlay(true), reduced ? 0 : 1100); return () => clearTimeout(t) }, [reduced])
+  useEffect(() => { const t = setTimeout(() => setPlay(true), reduced ? 0 : 700); return () => clearTimeout(t) }, [reduced])
   const balance = useCountUp(88.8, play, 1.6)
   const month = useCountUp(12.4, play, 1.6, 0.1)
 
@@ -65,13 +66,11 @@ export default function LaptopMockup() {
 
   let offset = 0
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 60 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 1.1, delay: 0.45, ease: EASE }}
-      // Narrower on phones so the lid and keyboard deck never touch the screen edges
-      className="relative mx-auto w-[84%] max-w-160 sm:w-full"
-      style={{ perspective: 1600 }}
+    <div
+      // Narrower on phones so the lid and keyboard deck never touch the screen edges.
+      // Fade-in is CSS so the laptop shows on first paint, before JavaScript loads.
+      className={`${styles.laptopIn} relative mx-auto w-[84%] max-w-160 sm:w-full`}
+      style={{ perspective: 1600, animationDelay: '0.2s' }}
       onMouseMove={onMove}
       onMouseLeave={onLeave}
       role="img"
@@ -219,6 +218,6 @@ export default function LaptopMockup() {
 
       {/* Contact shadow under the base */}
       <div aria-hidden className="pointer-events-none mx-auto -mt-1 h-6 w-[96%] rounded-[50%] bg-black/70 blur-xl sm:h-8" />
-    </motion.div>
+    </div>
   )
 }

@@ -33,7 +33,7 @@ export default function Overspend() {
 
   return (
     <section aria-labelledby="overspend-title" className="relative overflow-hidden border-y border-white/6 bg-[#0E0E0E] py-20 sm:py-28">
-      <div aria-hidden className="pointer-events-none absolute right-[-10%] top-1/2 h-[520px] w-[520px] -translate-y-1/2 rounded-full bg-white/6 blur-[120px]" />
+      <div aria-hidden className="pointer-events-none absolute right-[-25%] top-1/2 h-200 w-200 -translate-y-1/2 bg-[radial-gradient(closest-side,rgba(255,255,255,0.07),transparent)]" />
       <div className={`${CONTAINER} relative grid items-center gap-14 lg:grid-cols-[0.95fr_1.05fr] lg:gap-16`}>
         {/* Left: the promise, then how it works in three lines */}
         <Reveal>

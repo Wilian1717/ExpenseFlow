@@ -47,11 +47,8 @@ export default function Navbar() {
 
   const glass = scrolled || open
   return (
-    <motion.header
-      initial={{ opacity: 0, y: -16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.7, ease: EASE }}
-      className={`fixed inset-x-0 top-0 z-50 border-b transition-[background-color,border-color,backdrop-filter] duration-500 ${
+    <header
+      className={`${styles.enterDown} fixed inset-x-0 top-0 z-50 border-b transition-[background-color,border-color,backdrop-filter] duration-500 ${
         glass ? 'border-white/8 bg-[#0A0A0A]/70 backdrop-blur-xl' : 'border-transparent bg-transparent'}`}
     >
       <nav aria-label="Main" className={`${CONTAINER} flex h-16 items-center justify-between`}>
@@ -107,6 +104,6 @@ export default function Navbar() {
           </motion.div>
         )}
       </AnimatePresence>
-    </motion.header>
+    </header>
   )
 }
