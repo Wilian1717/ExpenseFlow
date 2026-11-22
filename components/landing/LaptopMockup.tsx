@@ -186,10 +186,11 @@ export default function LaptopMockup() {
 
         {/* Keyboard deck: a real 3D plane folding toward the viewer. Positioned
             absolutely so its unrotated height doesn't take up layout space.
-            Kept only slightly wider than the lid so perspective can't blow it up. */}
-        {/* Starts a little narrower than the lid: perspective widens the near edge,
-            so after projection the front of the base lines up with the screen. */}
-        <div aria-hidden className="absolute inset-x-[3.5%] top-full" style={{ transformStyle: 'preserve-3d' }}>
+            Perspective widens the near edge, and by a different amount when the
+            laptop is tilted (desktop) vs flat (phones), so the side inset differs:
+            either way the front of the base ends up the same width as the screen. */}
+        <div aria-hidden className="absolute top-full"
+          style={{ transformStyle: 'preserve-3d', left: tilt ? '3.5%' : '1%', right: tilt ? '3.5%' : '1%' }}>
           <div className="relative origin-top rounded-b-[12px] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
             style={{
               transform: `rotateX(${tilt ? 83 : 87}deg)`, aspectRatio: '16 / 5', transformStyle: 'preserve-3d',
