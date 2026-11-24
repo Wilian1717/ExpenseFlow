@@ -84,7 +84,20 @@
 @keyframes lineUp    { from { transform: translateY(110%); }             to { transform: none; } }
 @keyframes laptopIn  { from { opacity: 0; transform: translateY(40px); }  to { opacity: 1; transform: none; } }
 
+/* Thin light gliding along a card's top edge */
+.edgeLight {
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.7), transparent);
+  background-size: 40% 100%;
+  background-repeat: no-repeat;
+  animation: edgeLight 4.5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
+}
+@keyframes edgeLight {
+  0% { background-position: -40% 0; }
+  60%, 100% { background-position: 140% 0; }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  .edgeLight { animation: none; opacity: 0.35; }
   .enterDown, .rise, .lineUp, .laptopIn { animation: none; }
   .silver, .borderSpin, .pulse { animation: none; }
   .shine:hover::after { transition: none; transform: translateX(-120%); }
