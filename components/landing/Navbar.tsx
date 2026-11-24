@@ -3,9 +3,8 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { AnimatePresence, motion } from 'framer-motion'
 import { ArrowRight } from 'lucide-react'
-import { EASE, scrollToTop } from './motion'
+import { scrollToTop } from './motion'
 import { BTN_PRIMARY, BTN_SECONDARY, CONTAINER } from './ui'
 import styles from './landing.module.css'
 
@@ -66,11 +65,16 @@ export default function Navbar() {
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
 
-  const glass = scrolled || open
+  // Background states. The frosted blur switches on instantly; only the colour is
+  // transitioned. Animating backdrop-filter re-computes the blur every frame, which
+  // (with mounting the menu on each tap) is what made opening stutter on phones.
+  const bg = open || scrolled
+    ? 'border-white/8 bg-[#0A0A0A]/70 backdrop-blur-xl'
+    : 'border-transparent bg-transparent'
   return (
+    <>
     <header
-      className={`${styles.enterDown} fixed inset-x-0 top-0 z-50 border-b transition-[background-color,border-color,backdrop-filter] duration-500 ${
-        glass ? 'border-white/8 bg-[#0A0A0A]/70 backdrop-blur-xl' : 'border-transparent bg-transparent'}`}
+      className={`${styles.enterDown} fixed inset-x-0 top-0 z-50 border-b transition-[background-color,border-color] duration-300 ${bg}`}
     >
       <nav aria-label="Main" className={`${CONTAINER} flex h-16 items-center justify-between`}>
         <Logo onClick={() => setOpen(false)} />
@@ -97,35 +101,38 @@ export default function Navbar() {
           <MenuIcon open={open} />
         </button>
       </nav>
-
-      <AnimatePresence>
-        {open && (
-          <motion.div id="mobile-menu"
-            initial={{ opacity: 0, y: -12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -12 }}
-            transition={{ duration: 0.45, ease: EASE }}
-            className="border-t border-white/8 md:hidden">
-            <motion.ul className={`${CONTAINER} flex flex-col py-3`}
-              initial="hidden" animate="show"
-              variants={{ show: { transition: { staggerChildren: 0.06, delayChildren: 0.05 } } }}>
-              {LINKS.map(l => (
-                <motion.li key={l.href} variants={{ hidden: { opacity: 0, y: -8 }, show: { opacity: 1, y: 0 } }}>
-                  <a href={l.href} onClick={() => setOpen(false)}
-                    className="flex min-h-12 items-center text-base text-white/80 hover:text-white">
-                    {l.label}
-                  </a>
-                </motion.li>
-              ))}
-              <motion.li variants={{ hidden: { opacity: 0, y: -8 }, show: { opacity: 1, y: 0 } }}
-                className="mt-3 grid grid-cols-2 gap-2.5 pb-2">
-                <Link href="/login" onClick={() => setOpen(false)} className={`${BTN_SECONDARY} min-h-12`}>Sign in</Link>
-                <Link href="/register" onClick={() => setOpen(false)} className={`${BTN_PRIMARY} min-h-12`}>
-                  Get started <ArrowRight size={15} />
-                </Link>
-              </motion.li>
-            </motion.ul>
-          </motion.div>
-        )}
-      </AnimatePresence>
     </header>
+
+      {/* Mobile menu: rendered once and kept in the page, so opening is just a class
+          toggle (CSS transition) with no mounting work on the first frame.
+          It is a sibling of the header, not a child: a blurred element nested inside
+          another blurred element (the header) can't see the page behind it, so its
+          blur silently did nothing. The blurred panel only fades (moving a blurred
+          box re-blurs every frame); the links inside do the sliding. */}
+      <div id="mobile-menu" inert={!open}
+        className={`fixed inset-x-0 top-16 z-40 border-y border-white/8 bg-[#0A0A0A]/75 backdrop-blur-md transition-[opacity,visibility] duration-250 ease-out motion-reduce:transition-none md:hidden ${
+          open ? 'visible opacity-100' : 'invisible opacity-0'}`}>
+        <ul className={`${CONTAINER} flex flex-col py-3`}>
+          {LINKS.map((l, i) => (
+            <li key={l.href} style={{ transitionDelay: open ? `${60 + i * 50}ms` : '0ms' }}
+              className={`transition-[opacity,transform] duration-400 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
+                open ? 'translate-y-0 opacity-100' : '-translate-y-2 opacity-0'}`}>
+              <a href={l.href} onClick={() => setOpen(false)}
+                className="flex min-h-12 items-center text-base text-white/80 hover:text-white">
+                {l.label}
+              </a>
+            </li>
+          ))}
+          <li style={{ transitionDelay: open ? `${60 + LINKS.length * 50}ms` : '0ms' }}
+            className={`mt-3 grid grid-cols-2 gap-2.5 pb-2 transition-[opacity,transform] duration-400 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
+              open ? 'translate-y-0 opacity-100' : '-translate-y-2 opacity-0'}`}>
+            <Link href="/login" onClick={() => setOpen(false)} className={`${BTN_SECONDARY} min-h-12`}>Sign in</Link>
+            <Link href="/register" onClick={() => setOpen(false)} className={`${BTN_PRIMARY} min-h-12`}>
+              Get started <ArrowRight size={15} />
+            </Link>
+          </li>
+        </ul>
+      </div>
+    </>
   )
 }
