@@ -30,10 +30,12 @@ export default function Hero() {
       <div aria-hidden className="pointer-events-none absolute -top-72 right-[-25%] h-225 w-225 bg-[radial-gradient(closest-side,rgba(255,255,255,0.08),transparent)]" />
       <div aria-hidden className="pointer-events-none absolute left-[-30%] top-1/4 h-160 w-160 bg-[radial-gradient(closest-side,rgba(255,255,255,0.045),transparent)]" />
 
-      <div className={`${CONTAINER} relative grid items-center gap-14 lg:grid-cols-[1fr_1.15fr] lg:gap-10`}>
-        <div className="relative z-10">
+      <div className={`${CONTAINER} relative grid items-center lg:grid-cols-[1fr_1.15fr] lg:gap-10`}>
+        {/* Phones: the text column dissolves (display: contents) so the laptop can sit
+            between the subtext and the buttons. Desktop keeps two columns. */}
+        <div className="contents lg:relative lg:z-10 lg:block">
           <p style={delay(0.05)}
-            className={`${styles.rise} inline-flex min-h-8 items-center gap-2 rounded-full border border-white/12 bg-white/4 px-3.5 text-[13px] text-white/80`}>
+            className={`${styles.rise} justify-self-start inline-flex min-h-8 items-center gap-2 rounded-full border border-white/12 bg-white/4 px-3.5 text-[13px] text-white/80`}>
             <span className="h-1.5 w-1.5 rounded-full bg-white" aria-hidden />
             Free forever · No credit card
           </p>
@@ -54,7 +56,7 @@ export default function Hero() {
             Track spending, set budgets and hit your savings goals. Built for Indonesia, free for everyone.
           </p>
 
-          <div style={delay(0.5)} className={`${styles.rise} mt-8 flex flex-col gap-3 sm:flex-row`}>
+          <div style={delay(0.5)} className={`${styles.rise} order-2 mt-12 flex flex-col gap-3 sm:flex-row lg:order-none lg:mt-8`}>
             <Link href="/register" className={`${BTN_PRIMARY} ${styles.shine} min-h-12 px-6`}>
               Start tracking free
               <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
@@ -65,7 +67,7 @@ export default function Hero() {
           </div>
         </div>
 
-        <div className="relative lg:pl-6">
+        <div className="relative order-1 mt-14 lg:order-none lg:mt-0 lg:pl-6">
           {/* Giant faded FLOW behind the laptop */}
           <motion.span aria-hidden style={{ y: flowY }}
             className={`${DISPLAY} pointer-events-none absolute -top-[18%] left-1/2 -translate-x-1/2 select-none bg-linear-to-b from-white/12 to-transparent bg-clip-text text-[34vw] font-black leading-none tracking-[-0.06em] text-transparent lg:-top-[34%] lg:text-[250px]`}>
