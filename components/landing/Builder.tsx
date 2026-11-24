@@ -19,11 +19,11 @@ export default function Builder() {
               <blockquote className="mt-3 max-w-xl space-y-3 text-[15px] leading-relaxed text-white/65">
                 <p>
                   ExpenseFlow started with a simple frustration. The finance apps I tried were either locked behind
-                  a subscription, cluttered with features I never used, or not designed for Rupiah.
+                  a subscription, cluttered with features I never used, or simply not built for how I manage money.
                 </p>
                 <p>
-                  So I built the tool I wanted: focused on what matters, free to use, and made for the way people in
-                  Indonesia actually spend. Every feature is shaped by one question: does this make your money
+                  So I built the tool I wanted: focused on what matters, free to use, and made for the way people
+                  actually spend. Every feature is shaped by one question: does this make your money
                   easier to understand?
                 </p>
               </blockquote>

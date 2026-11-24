@@ -6,9 +6,9 @@ import { CONTAINER, DISPLAY } from './ui'
 
 // Product facts only (no user counts or ratings)
 const STATS: { value: React.ReactNode; label: string }[] = [
-  { value: 'Rp 0', label: 'forever' },
+  { value: 'Free', label: 'forever' },
   { value: <CountUpInView to={9} format={v => String(Math.round(v))} />, label: 'connected tools' },
-  { value: 'IDR', label: 'native currency' },
+  { value: '0', label: 'ads, ever' },
   { value: 'CSV', label: 'export anytime' },
 ]
 

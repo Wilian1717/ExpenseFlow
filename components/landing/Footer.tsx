@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import Image from 'next/image'
-import { Zap } from 'lucide-react'
 import { CONTAINER } from './ui'
 import { scrollToTop } from './motion'
 
@@ -39,9 +38,6 @@ export default function Footer() {
 
         <div className="col-span-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between lg:col-span-1 lg:flex-col lg:items-end lg:justify-start">
           <p className="text-sm text-white/55">© 2026 ExpenseFlow by Wilian</p>
-          <span className="inline-flex min-h-9 items-center gap-1.5 self-start rounded-full border border-white/12 px-3.5 text-xs text-white/70 lg:self-end">
-            <Zap size={13} className="fill-white text-white" aria-hidden /> Built with Next.js + Supabase
-          </span>
         </div>
       </div>
     </footer>

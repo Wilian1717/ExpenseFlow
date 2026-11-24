@@ -34,14 +34,8 @@ export default function Hero() {
         {/* Phones: the text column dissolves (display: contents) so the laptop can sit
             between the subtext and the buttons. Desktop keeps two columns. */}
         <div className="contents lg:relative lg:z-10 lg:block">
-          <p style={delay(0.05)}
-            className={`${styles.rise} justify-self-start inline-flex min-h-8 items-center gap-2 rounded-full border border-white/12 bg-white/4 px-3.5 text-[13px] text-white/80`}>
-            <span className="h-1.5 w-1.5 rounded-full bg-white" aria-hidden />
-            Free forever · No credit card
-          </p>
-
           <h1 id="hero-title"
-            className={`${DISPLAY} mt-6 text-[46px] font-black leading-[0.95] tracking-[-0.04em] text-white sm:text-[64px] lg:text-[76px] xl:text-[84px]`}>
+            className={`${DISPLAY} text-[46px] font-black leading-[0.95] tracking-[-0.04em] text-white sm:text-[64px] lg:text-[76px] xl:text-[84px]`}>
             {LINES.map((line, i) => (
               // Each line slides up from behind a mask
               <span key={line} className="block overflow-hidden pb-[0.08em]">
@@ -53,10 +47,10 @@ export default function Hero() {
           </h1>
 
           <p style={delay(0.4)} className={`${styles.rise} mt-6 max-w-md text-base leading-relaxed text-white/60 sm:text-lg`}>
-            Track spending, set budgets and hit your savings goals. Built for Indonesia, free for everyone.
+            Track spending, set budgets and hit your savings goals. Simple, fast and free for everyone.
           </p>
 
-          <div style={delay(0.5)} className={`${styles.rise} order-2 mt-12 flex flex-col gap-3 sm:flex-row lg:order-none lg:mt-8`}>
+          <div style={delay(0.5)} className={`${styles.rise} order-2 mt-12 flex flex-col gap-3 sm:flex-row lg:order-0 lg:mt-8`}>
             <Link href="/register" className={`${BTN_PRIMARY} ${styles.shine} min-h-12 px-6`}>
               Start tracking free
               <ArrowRight size={16} className="transition-transform duration-300 group-hover:translate-x-1" />
@@ -67,7 +61,7 @@ export default function Hero() {
           </div>
         </div>
 
-        <div className="relative order-1 mt-14 lg:order-none lg:mt-0 lg:pl-6">
+        <div className="relative order-1 mt-14 lg:order-0 lg:mt-0 lg:pl-6">
           {/* Giant faded FLOW behind the laptop */}
           <motion.span aria-hidden style={{ y: flowY }}
             className={`${DISPLAY} pointer-events-none absolute -top-[18%] left-1/2 -translate-x-1/2 select-none bg-linear-to-b from-white/12 to-transparent bg-clip-text text-[34vw] font-black leading-none tracking-[-0.06em] text-transparent lg:-top-[34%] lg:text-[250px]`}>

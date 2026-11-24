@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowRight, Menu, X } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { EASE, scrollToTop } from './motion'
 import { BTN_PRIMARY, BTN_SECONDARY, CONTAINER } from './ui'
 import styles from './landing.module.css'
@@ -14,6 +14,27 @@ const LINKS = [
   { label: 'How it works', href: '#how' },
   { label: 'About', href: '#about' },
 ]
+
+// Hamburger that morphs into an X. Opening: the outer lines slide to the centre,
+// then rotate into an X while the middle line shrinks away. Closing plays it in reverse.
+// Each outer line is two nested spans so the slide and the rotation can be sequenced.
+const MORPH = 'transition-transform duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none'
+function MenuIcon({ open }: { open: boolean }) {
+  const slide = open ? 'delay-0' : 'delay-200'      // slide first when opening, last when closing
+  const turn = open ? 'delay-200' : 'delay-0'       // rotate last when opening, first when closing
+  return (
+    <span aria-hidden className="relative block h-3.5 w-5">
+      <span className={`absolute inset-x-0 top-0 ${MORPH} ${slide} ${open ? 'translate-y-1.5' : ''}`}>
+        <span className={`block h-0.5 w-full rounded-full bg-white ${MORPH} ${turn} ${open ? 'rotate-45' : ''}`} />
+      </span>
+      <span className={`absolute right-0 top-1.5 block h-0.5 w-full origin-right rounded-full bg-white transition-[transform,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
+        open ? 'scale-x-0 opacity-0' : 'scale-x-100 opacity-100 delay-200'}`} />
+      <span className={`absolute inset-x-0 top-3 ${MORPH} ${slide} ${open ? '-translate-y-1.5' : ''}`}>
+        <span className={`block h-0.5 w-full rounded-full bg-white ${MORPH} ${turn} ${open ? '-rotate-45' : ''}`} />
+      </span>
+    </span>
+  )
+}
 
 export function Logo({ size = 28, onClick }: { size?: number; onClick?: () => void }) {
   return (
@@ -71,8 +92,9 @@ export default function Navbar() {
 
         <button type="button" onClick={() => setOpen(v => !v)}
           aria-expanded={open} aria-controls="mobile-menu" aria-label={open ? 'Close menu' : 'Open menu'}
-          className="inline-flex h-11 w-11 items-center justify-center rounded-full border border-white/15 text-white md:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white">
-          {open ? <X size={20} /> : <Menu size={20} />}
+          className={`inline-flex h-11 w-11 items-center justify-center rounded-full border text-white transition-colors duration-500 md:hidden focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
+            open ? 'border-white/30 bg-white/8' : 'border-white/15'}`}>
+          <MenuIcon open={open} />
         </button>
       </nav>
 

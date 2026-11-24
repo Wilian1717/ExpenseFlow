@@ -187,7 +187,7 @@ export default function Features() {
             <h2 id="features-title" className={`${H2} mt-4`}>Every tool<br />you need.</h2>
           </div>
           <p className="max-w-md text-base leading-relaxed text-white/60 md:justify-self-end md:text-right">
-            A complete personal finance solution in one place. Made for Rupiah, from the first coffee to the monthly rent.
+            A complete personal finance solution in one place. Made for everyday money, from the first coffee to the monthly rent.
           </p>
         </Reveal>
 
