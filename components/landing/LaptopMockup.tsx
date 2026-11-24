@@ -80,8 +80,9 @@ export default function LaptopMockup() {
       <div aria-hidden className="pointer-events-none absolute inset-x-[12%] -bottom-6 h-20 rounded-full bg-white/25 blur-3xl" />
 
       <motion.div style={{ rotateX, rotateY, transformStyle: 'preserve-3d' }} className="relative will-change-transform">
-        {/* Lid: thin brushed-aluminium rim around a black glass bezel */}
-        <div className="rounded-[20px] bg-linear-to-b from-[#e4e6ea] via-[#8d9198] to-[#4a4d53] p-0.5 shadow-[0_50px_90px_-35px_rgba(0,0,0,0.95)] sm:p-0.75">
+        {/* Lid: thin brushed-aluminium rim around a black glass bezel.
+            White halo glows out from behind the screen's edges (like the CTA box). */}
+        <div className="relative rounded-[20px] bg-linear-to-b from-[#e4e6ea] via-[#8d9198] to-[#4a4d53] p-0.5 shadow-[0_50px_90px_-35px_rgba(0,0,0,0.95),0_0_80px_-8px_rgba(255,255,255,0.18),0_0_30px_-6px_rgba(255,255,255,0.20)] sm:p-0.75">
         <div className="relative rounded-[18px] bg-[#050506] px-[1.8%] pb-[2.4%] pt-[2.6%] shadow-[inset_0_0_0_1px_rgba(255,255,255,0.06),inset_0_1px_0_rgba(255,255,255,0.12)]">
           {/* camera */}
           <span aria-hidden className="absolute left-1/2 top-[0.9%] h-1.5 w-1.5 -translate-x-1/2 rounded-full bg-[#1c1d20] ring-1 ring-white/10 sm:top-[1.1%]">
