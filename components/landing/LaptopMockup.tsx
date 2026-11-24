@@ -10,6 +10,10 @@ import styles from './landing.module.css'
 // Final resting tilt on desktop (mobile stays flat so it fits and stays readable)
 const TILT_X = 9
 const TILT_Y = -12
+// Base corner rounding (horizontal / vertical), matching the lid's rounded corners
+// Only the front corners are rounded: the back corners sit behind the hinge
+const DECK_RADIUS = '0 0 5% 5% / 0 0 16% 16%'
+const DECK_RIGHT = '0.5%'   // desktop right inset; brings the base's right end out to the screen edge
 
 const BARS = [38, 62, 45, 80, 55, 92, 48, 70, 86, 58, 74, 96, 66]
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun']
@@ -185,21 +189,27 @@ export default function LaptopMockup() {
         {/* Hinge */}
         <div aria-hidden className="relative mx-[2%] h-1.5 rounded-b-sm bg-linear-to-b from-[#0b0b0c] via-[#2a2c30] to-[#55585e]" />
 
-        {/* Keyboard deck: a real 3D plane folding toward the viewer. Positioned
-            absolutely so its unrotated height doesn't take up layout space.
-            Perspective widens the near edge, and by a different amount when the
-            laptop is tilted (desktop) vs flat (phones), so the side inset differs:
-            either way the front of the base ends up the same width as the screen. */}
+        {/* Keyboard deck: a true 3D plane folding toward the viewer, sharing the laptop's
+            perspective (preserve-3d), so it takes the same angle as the screen: thin and
+            steep, with the front edge sweeping slightly left as the laptop is turned.
+            Positioned absolutely so its unrotated height doesn't take up layout space.
+            Perspective widens the near edge more when tilted (desktop) than flat (phones),
+            so the side inset differs to keep the base about the screen's width. */}
         <div aria-hidden className="absolute top-full"
-          style={{ transformStyle: 'preserve-3d', left: tilt ? '3.5%' : '1%', right: tilt ? '3.5%' : '1%' }}>
-          <div className="relative origin-top rounded-b-[12px] shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
+          // Desktop: the far (right) end recedes, so it gets a smaller inset to reach the
+          // screen's right edge, while the left keeps the natural sweep.
+          style={{ transformStyle: 'preserve-3d', left: tilt ? '3.5%' : '1%', right: tilt ? DECK_RIGHT : '1%' }}>
+          <div className="relative origin-top shadow-[inset_0_1px_0_rgba(255,255,255,0.9)]"
             style={{
               transform: `rotateX(${tilt ? 83 : 87}deg)`, aspectRatio: '16 / 5', transformStyle: 'preserve-3d',
+              // Rounded corners like the lid. The deck is 16:5 in its own plane, so 5% of
+              // its width = 16% of its depth: a true round corner once folded flat.
+              borderRadius: DECK_RADIUS,
               // polished aluminium
               background: 'linear-gradient(180deg, #f6f7f9 0%, #dfe2e6 20%, #bcc0c6 58%, #9ea3aa 100%)',
             }}>
             {/* specular sheen across the metal */}
-            <div className="absolute inset-0 rounded-b-[12px]" style={{ background: 'linear-gradient(100deg, transparent 18%, rgba(255,255,255,0.65) 42%, rgba(255,255,255,0.15) 52%, transparent 66%)' }} />
+            <div className="absolute inset-0" style={{ borderRadius: DECK_RADIUS, background: 'linear-gradient(100deg, transparent 18%, rgba(255,255,255,0.65) 42%, rgba(255,255,255,0.15) 52%, transparent 66%)' }} />
             {/* keyboard well with individual keycaps */}
             <div className="absolute inset-x-[11%] top-[9%] h-[52%] rounded-[6px] bg-[#2b2d31] shadow-[inset_0_1px_2px_rgba(0,0,0,0.6)]"
               style={{
@@ -212,8 +222,8 @@ export default function LaptopMockup() {
             <div className="absolute bottom-[8%] left-1/2 h-[27%] w-[33%] -translate-x-1/2 rounded-[6px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.10),inset_0_1px_0_rgba(255,255,255,0.8)]"
               style={{ background: 'linear-gradient(180deg, #d4d7db 0%, #b3b8be 100%)' }} />
             {/* shiny front lip, standing upright at the near edge */}
-            <div className="absolute inset-x-0 top-full h-[5%] origin-top rounded-b-[12px]"
-              style={{ transform: 'rotateX(-90deg)', background: 'linear-gradient(180deg, #f0f2f5 0%, #a3a8af 45%, #55595f 100%)' }}>
+            <div className="absolute inset-x-0 top-full h-[5%] origin-top"
+              style={{ transform: 'rotateX(-90deg)', borderRadius: '0 0 5% 5% / 0 0 100% 100%', background: 'linear-gradient(180deg, #f0f2f5 0%, #a3a8af 45%, #55595f 100%)' }}>
               <span className="absolute left-1/2 top-0 h-[40%] w-[15%] -translate-x-1/2 rounded-b-md bg-black/25" />
             </div>
           </div>
