@@ -5080,6 +5080,9 @@ export default function Dashboard() {
               const totalLeft   = Math.max(totalBudget - totalUsed, 0)
               const usedPct     = totalBudget > 0 ? Math.min((totalUsed / totalBudget) * 100, 100) : 0
               const days        = daysLeftInMonth(selectedMonth)
+              // How far through the month we are, to judge each budget's pace
+              const [pyr, pmo]  = selectedMonth.split('-').map(Number)
+              const monthPct    = days === null ? 100 : ((new Date(pyr, pmo, 0).getDate() - days) / new Date(pyr, pmo, 0).getDate()) * 100
               return (
               <div className="flex flex-col gap-2.5">
                 {/* Summary */}
@@ -5092,7 +5095,7 @@ export default function Dashboard() {
                     </Ring>
                     <div className="min-w-0">
                       <p className="text-base font-semibold text-black tracking-tight">Your Budgets</p>
-                      <p className="text-[11px] text-gray-500 mt-0.5">{usedPct.toFixed(0)}% of your budgets spent this month</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">{usedPct.toFixed(0)}% of your budgets spent{days !== null ? ` · ${days} ${days === 1 ? 'day' : 'days'} left this month` : ' this month'}</p>
                     </div>
                   </div>
                   <div className="grid grid-cols-3 mt-3 pt-3 border-t border-gray-200/70">
@@ -5101,8 +5104,8 @@ export default function Dashboard() {
                       { label: 'Total used', value: totalUsed },
                       { label: 'Remaining', value: totalLeft },
                     ].map((s, i) => (
-                      <div key={s.label} className={`min-w-0 ${i > 0 ? 'pl-3 border-l border-gray-200/70' : ''}`}>
-                        <p className="text-sm font-semibold text-black tabular-nums truncate">{fmt(s.value)}</p>
+                      <div key={s.label} className={`min-w-0 ${i > 0 ? 'pl-2.5 sm:pl-3 border-l border-gray-200/70' : ''}`}>
+                        <p className="text-[13px] sm:text-sm font-semibold text-black tabular-nums tracking-tight truncate">{fmt(s.value)}</p>
                         <p className="text-[10px] text-gray-500 mt-0.5 truncate">{s.label}</p>
                       </div>
                     ))}
@@ -5111,34 +5114,34 @@ export default function Dashboard() {
 
                 {poolsThisMonth.map(({ pool, spent, remaining, pct }) => {
                   const over = spent > pool.budget_amount
-                  const warn = !over && pct >= 80
                   const cfg  = CATEGORY_CONFIG[pool.category]
-                  const barColor = over ? '#ef4444' : warn ? '#f59e0b' : CATEGORY_COLOR[pool.category]
+                  const usedRaw = pool.budget_amount > 0 ? (spent / pool.budget_amount) * 100 : 0
+                  // Status: compares spending with how far through the month we are
+                  const status = over ? { label: 'Over budget', dot: 'bg-red-500', text: 'text-red-600', bar: 'linear-gradient(90deg, #f87171, #dc2626)' }
+                    : pct >= 85 ? { label: 'Almost used', dot: 'bg-amber-500', text: 'text-amber-600', bar: 'linear-gradient(90deg, #fcd34d, #f59e0b)' }
+                    : spent > 0 && pct > monthPct + 10 ? { label: 'Spending fast', dot: 'bg-amber-500', text: 'text-amber-600', bar: 'linear-gradient(90deg, #fcd34d, #f59e0b)' }
+                    : { label: 'On track', dot: 'bg-emerald-500', text: 'text-emerald-600', bar: 'linear-gradient(90deg, #6ee7b7, #10b981)' }
+                  const perDay = days !== null && !over ? Math.floor(remaining / (days + 1)) : null
                   const isReserved = pool.is_reserved !== false
                   return (
                     <div key={pool.id} onClick={() => setOpenPool(pool)}
-                      className="rounded-2xl border border-gray-100 bg-white px-4 py-3.5 hover:border-gray-200 hover:shadow-[0_8px_24px_-14px_rgba(16,24,40,0.18)] transition-all cursor-pointer group">
-                      {/* Top: icon, name, % chip, Log, menu */}
+                      className="rounded-2xl border border-gray-100 bg-white px-4 py-4 hover:border-gray-200 hover:shadow-[0_8px_24px_-14px_rgba(16,24,40,0.18)] transition-all cursor-pointer group">
+                      {/* Top: icon, name + monthly limit, Log, menu */}
                       <div className="flex items-center gap-3">
                         <div className={`w-10 h-10 ${cfg.bg} rounded-xl flex items-center justify-center shrink-0`}>
                           <span className={cfg.text}>{cfg.icon}</span>
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-[15px] font-semibold text-black truncate tracking-tight">{pool.title}</p>
-                          <p className="text-xs text-gray-500">{fmt(pool.budget_amount)} / month</p>
+                          <p className="text-xs text-gray-500 truncate">{fmt(pool.budget_amount)} / month</p>
                         </div>
-                        {spent > 0 && (
-                          <span className={`hidden sm:inline-flex text-xs font-semibold tabular-nums rounded-full px-2.5 py-1 shrink-0 ${
-                            over ? 'bg-red-50 text-red-600' : warn ? 'bg-amber-50 text-amber-700' : `${cfg.bg} ${cfg.text}`}`}>
-                            {over ? `${Math.round((spent / pool.budget_amount) * 100)}%` : `${pct.toFixed(0)}%`}
-                          </span>
-                        )}
                         <button
                           onClick={e => { e.stopPropagation(); setLoggingPool(pool) }}
-                          className="flex items-center gap-1 h-8 px-3.5 rounded-full bg-black text-white text-xs font-semibold hover:bg-gray-800 active:scale-[.97] transition-all shrink-0">
-                          <Plus size={12} /> Log
+                          aria-label={`Log spending for ${pool.title}`}
+                          className="flex items-center justify-center gap-1 h-9 w-9 sm:h-8 sm:w-auto sm:px-3.5 rounded-full bg-black text-white text-xs font-semibold hover:bg-gray-800 active:scale-[.97] transition-all shrink-0">
+                          <Plus size={14} className="sm:w-3 sm:h-3" /> <span className="hidden sm:inline">Log</span>
                         </button>
-                        <div onClick={e => e.stopPropagation()}>
+                        <div onClick={e => e.stopPropagation()} className="-mr-1.5 sm:mr-0">
                           <RowMenu items={[
                             { label: 'Details', icon: <History size={13} />, onClick: () => setOpenPool(pool) },
                             { label: 'Archive', icon: <Trash2 size={13} />, onClick: () => handleArchivePool(pool.id), danger: true },
@@ -5146,32 +5149,49 @@ export default function Dashboard() {
                         </div>
                       </div>
 
-                      {/* Middle: progress, or a gentle empty state */}
                       {spent === 0 ? (
-                        <div className="mt-3 flex items-center justify-center gap-1.5 h-9 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">
-                          <Calendar size={13} /> Not logged yet this month
+                        <div className="mt-3.5 flex items-center justify-center gap-1.5 h-10 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400">
+                          <Calendar size={13} /> Not logged yet this month · {fmt(pool.budget_amount)} available
                         </div>
-                      ) : (
-                        <div className="mt-3 bg-gray-100 rounded-full h-2 overflow-hidden">
-                          <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, backgroundColor: barColor }} />
+                      ) : (<>
+                        {/* The answer first: what's left, and whether you're on pace */}
+                        <div className="mt-3.5 flex items-end justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className={`text-lg font-semibold tabular-nums tracking-tight leading-none ${over ? 'text-red-600' : 'text-black'}`}>
+                              {over ? `-${fmt(spent - pool.budget_amount)}` : fmt(remaining)}
+                            </p>
+                            <p className="text-[11px] text-gray-500 mt-1 flex items-center gap-1.5">
+                              {over ? 'over your limit' : 'left to spend'}
+                              {reserved.isCurrentMonth && (isReserved
+                                ? <span className="inline-flex items-center gap-0.5 font-semibold text-amber-600"><Lock size={9} /> Reserved</span>
+                                : <span className="font-semibold text-gray-400">Flexible</span>)}
+                            </p>
+                          </div>
+                          <span className={`inline-flex items-center gap-1.5 text-[11px] font-medium shrink-0 ${status.text}`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${status.dot}`} />
+                            {status.label} · {Math.round(usedRaw)}%
+                          </span>
                         </div>
-                      )}
 
-                      {/* Bottom: used · remaining + reserved/flexible badge */}
-                      <div className="mt-2.5 flex items-center justify-between gap-2 flex-wrap">
-                        <span className="text-xs text-gray-600 tabular-nums">
-                          {spent > 0 ? <><span className="font-medium text-black">{fmt(spent)}</span> used</> : <span className="text-gray-400">Nothing used yet</span>}
-                        </span>
-                        <span className="flex items-center gap-2 ml-auto">
-                          {over
-                            ? <span className="text-xs font-medium text-red-600 tabular-nums">Over by {fmt(spent - pool.budget_amount)}</span>
-                            : <span className={`text-xs tabular-nums ${warn ? 'text-amber-600' : 'text-gray-600'}`}>{fmt(remaining)} remaining</span>}
-                          {reserved.isCurrentMonth && (isReserved
-                            ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-amber-50 text-amber-700"><Lock size={9} /> Reserved</span>
-                            : <span className="inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-gray-100 text-gray-500">Flexible</span>)}
-                        </span>
-                      </div>
-                      {days !== null && <p className="text-[10px] text-gray-400 mt-1 text-right">{days}d left in the month</p>}
+                        {/* Bar with a "today" marker: past the marker = spending faster than the month */}
+                        <div className="relative mt-2.5">
+                          <div className="bg-gray-100 rounded-full h-2 overflow-hidden">
+                            <div className="h-full rounded-full transition-all duration-700" style={{ width: `${pct}%`, background: status.bar }} />
+                          </div>
+                          {days !== null && (
+                            <span title="Where you should be today" aria-hidden
+                              className="absolute -top-1 -bottom-1 w-0.5 rounded-full bg-gray-400"
+                              style={{ left: `calc(${monthPct}% - 1px)` }} />
+                          )}
+                        </div>
+
+                        <div className="mt-2 flex items-center justify-between gap-2 text-[11px] text-gray-500 tabular-nums">
+                          <span className="truncate">{fmt(spent)} used</span>
+                          {perDay !== null && perDay > 0 && (
+                            <span className="shrink-0">≈ {fmt(perDay)} / day</span>
+                          )}
+                        </div>
+                      </>)}
                     </div>
                   )
                 })}
