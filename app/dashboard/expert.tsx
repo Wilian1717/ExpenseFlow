@@ -1724,9 +1724,16 @@ export default function ExpertView(p: ExpertViewProps) {
                 return (
                   <Card className="p-5 mb-4">
                     <div className="flex items-center gap-5 flex-wrap">
-                      <div className="min-w-0 flex-1 basis-48">
-                        <p className="text-base font-semibold text-black tracking-tight">Your Budgets</p>
-                        <p className="text-xs text-gray-500 mt-0.5">Stay on track with your monthly plan</p>
+                      {/* Ring shows how much of all budgets is SPENT; colour warms as it fills */}
+                      <div className="min-w-0 flex-1 basis-56 flex items-center gap-4">
+                        <Ring pct={usedPct} size={64} stroke={6} color={usedPct >= 90 ? '#dc2626' : usedPct >= 70 ? '#f59e0b' : '#10b981'}>
+                          <span className="text-xs font-semibold text-black tabular-nums leading-none">{usedPct.toFixed(0)}%</span>
+                          <span className="text-[9px] uppercase tracking-wide text-gray-500 leading-none mt-0.5">spent</span>
+                        </Ring>
+                        <div className="min-w-0">
+                          <p className="text-base font-semibold text-black tracking-tight">Your Budgets</p>
+                          <p className="text-xs text-gray-500 mt-0.5">{usedPct.toFixed(0)}% of your budgets spent this month</p>
+                        </div>
                       </div>
                       <div className="grid grid-cols-3 flex-2 basis-80 min-w-0">
                         {[
@@ -1740,9 +1747,6 @@ export default function ExpertView(p: ExpertViewProps) {
                           </div>
                         ))}
                       </div>
-                      <Ring pct={usedPct} size={60} stroke={6} color="var(--ef-ink)">
-                        <span className="text-xs font-semibold text-black tabular-nums">{usedPct.toFixed(0)}%</span>
-                      </Ring>
                     </div>
                   </Card>
                 )

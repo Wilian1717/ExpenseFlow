@@ -5084,14 +5084,16 @@ export default function Dashboard() {
               <div className="flex flex-col gap-2.5">
                 {/* Summary */}
                 <div className="rounded-2xl bg-gray-50 border border-gray-100 px-4 py-3.5">
-                  <div className="flex items-center justify-between gap-3">
+                  {/* Ring shows how much of all budgets is SPENT; colour warms as it fills */}
+                  <div className="flex items-center gap-3.5">
+                    <Ring pct={usedPct} size={56} stroke={5} color={usedPct >= 90 ? '#dc2626' : usedPct >= 70 ? '#f59e0b' : '#10b981'}>
+                      <span className="text-[11px] font-semibold text-black tabular-nums leading-none">{usedPct.toFixed(0)}%</span>
+                      <span className="text-[8px] uppercase tracking-wide text-gray-500 leading-none mt-0.5">spent</span>
+                    </Ring>
                     <div className="min-w-0">
                       <p className="text-base font-semibold text-black tracking-tight">Your Budgets</p>
-                      <p className="text-[11px] text-gray-500 mt-0.5">Stay on track with your monthly plan</p>
+                      <p className="text-[11px] text-gray-500 mt-0.5">{usedPct.toFixed(0)}% of your budgets spent this month</p>
                     </div>
-                    <Ring pct={usedPct} size={52} stroke={5} color="var(--ef-ink)">
-                      <span className="text-[11px] font-semibold text-black tabular-nums">{usedPct.toFixed(0)}%</span>
-                    </Ring>
                   </div>
                   <div className="grid grid-cols-3 mt-3 pt-3 border-t border-gray-200/70">
                     {[
